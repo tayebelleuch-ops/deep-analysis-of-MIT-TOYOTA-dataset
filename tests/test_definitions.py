@@ -1,10 +1,11 @@
-"""Section 5 of the brief: what "the default trajectory set" actually is.
+"""What "the default trajectory set" actually is.
 
-REPORT.md section 7 calls 123 cells the default trajectory training set;
-comparison_external_repos.md section 4.2 calls 130 cells the default trajectory set,
-"123 of which are labelled". Both numbers describe this data correctly -- they are
-two different sets, and the phrase is doing double duty. These tests pin down which
-column means what, so the docstrings can state one definition.
+REPORT.md section 7 used to call 123 cells the default trajectory training set while
+comparison_external_repos.md section 4.2 called 130 cells the default trajectory set,
+"123 of which are labelled". Both numbers describe this data correctly -- they are two
+different sets, and the phrase was doing double duty. Both documents now name the
+predicate behind each count, and these tests hold them to it: 130 is
+``use_for_trajectory``, 123 is ``use_for_trajectory & has_eol_label``.
 """
 
 from __future__ import annotations
@@ -45,8 +46,15 @@ def test_both_published_statements_are_true_of_the_data(repo_root, cells):
         repo_root / "exploration" / "comparison_external_repos.md"
     ).read_text(encoding="utf-8")
 
-    assert "default trajectory training set | **123**" in report
-    assert "this repo's default trajectory set | **130** (123 of which are labelled)" in comparison
+    assert (
+        "default trajectory set, labelled (`use_for_trajectory & has_eol_label`) "
+        "| **123**" in report
+    )
+    assert "default trajectory set (`use_for_trajectory`) | 130 |" in report
+    assert (
+        "this repo's default trajectory set (`use_for_trajectory`) | **130** "
+        "(123 of which are labelled)" in comparison
+    )
 
     n_traj = int(cells["use_for_trajectory"].sum())
     n_traj_labelled = int((cells["use_for_trajectory"] & cells["has_eol_label"]).sum())

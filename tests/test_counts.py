@@ -131,7 +131,7 @@ def _table_numbers(section: str):
     for line in section.splitlines():
         match = re.match(r"^\|\s*(.+?)\s*\|\s*\**([\d,]+)\**\s*\|\s*$", line)
         if match:
-            label = match.group(1).strip().strip("`").lower()
+            label = match.group(1).strip().replace("`", "").lower()
             found[label] = int(match.group(2).replace(",", ""))
     return found
 
@@ -154,9 +154,13 @@ def test_counts_match_report_section_7(repo_root, exploration_dir):
     assert table["censored, no label"] == n["n_unlabelled"]
     assert table["continuations, off by default"] == n["n_continuation"]
     assert table["in_paper_124"] == n["n_in_paper"]
-    # REPORT.md section 7 calls this 123 == use_for_trajectory & has_eol_label.
-    # See test_definitions.py for the reconciliation.
-    assert table["default trajectory training set"] == n["n_traj_labelled"]
+    # Section 7 now names the predicate behind each of the two trajectory counts,
+    # so each number is pinned to the column that produces it.
+    assert table["default trajectory set (use_for_trajectory)"] == n["n_traj"]
+    assert (
+        table["default trajectory set, labelled (use_for_trajectory & has_eol_label)"]
+        == n["n_traj_labelled"]
+    )
 
 
 def test_report_validation_claim_43_strict_crossings(repo_root, cells):

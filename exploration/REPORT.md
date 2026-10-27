@@ -302,7 +302,8 @@ analysis_set_cycles.csv   113,559 cycles × 12 columns, truncated at the 80% SOH
 |---|---|
 | physical cells | 135 |
 | with an 80% SOH label | **128** |
-| default trajectory training set | **123** |
+| default trajectory set (`use_for_trajectory`) | 130 |
+| default trajectory set, labelled (`use_for_trajectory & has_eol_label`) | **123** |
 | censored, no label | 7 |
 | continuations, off by default | 5 |
 | `in_paper_124` | 124 |
