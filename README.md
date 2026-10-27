@@ -131,6 +131,7 @@ record, including the SHA-256 of every generated file and the fold rule, is in
 | path | contents |
 |---|---|
 | [`exploration/REPORT.md`](exploration/REPORT.md) | **The consolidated audit and cleaning report. Read this first.** |
+| [`USAGE.md`](USAGE.md) | How to import the analysis set with the `matr_clean` loader package (pandas and numpy only, no `h5py`, no raw `.mat` files) |
 | `exploration/schema.md` | The verified struct schema, string decoding, units |
 | `exploration/step2_findings.md` | All 21 documentation claims, tested, with verdicts and evidence |
 | `exploration/cleaning_plan.md` | One entry per issue: evidence, options, trade-offs, decision |

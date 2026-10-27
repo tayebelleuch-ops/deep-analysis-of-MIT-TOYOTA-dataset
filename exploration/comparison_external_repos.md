@@ -163,7 +163,7 @@ batch 3) and merges a further 5 batch-2 rows into their batch-1 counterparts, so
 | struct rows in the three files | 140 |
 | Repo B's modelled set | **139** |
 | this repo's physical cells | **135** |
-| this repo's default trajectory set | **130** (123 of which are labelled) |
+| this repo's default trajectory set (`use_for_trajectory`) | **130** (123 of which are labelled) |
 | the paper's published count | **124** |
 
 Repo B therefore retains **16 struct rows that the official recipe removes or merges**:

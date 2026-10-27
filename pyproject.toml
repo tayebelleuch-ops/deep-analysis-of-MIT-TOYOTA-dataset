@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "matr-clean"
+version = "0.1.0"
+description = "Import the cleaned MIT-Stanford-TRI battery analysis set with pandas and numpy only"
+readme = "USAGE.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE.md"]
+authors = [{ name = "Tayeb Elleuch" }]
+keywords = ["battery", "lithium-ion", "state-of-health", "dataset", "severson", "matr"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+]
+
+# Deliberately unpinned at both ends: teammates install this next to whatever
+# pandas their project already uses. Tested against pandas 2.x and 3.x.
+dependencies = ["pandas", "numpy"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset"
+Report = "https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset/blob/main/exploration/REPORT.md"
+Usage = "https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset/blob/main/USAGE.md"
+
+[tool.setuptools]
+# Only the package. The three CSVs are NOT packaged: they are read from the lookup
+# order in matr_clean/_locate.py, and exploration/ is never copied or modified.
+packages = ["matr_clean"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
