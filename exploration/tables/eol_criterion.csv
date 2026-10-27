@@ -1,0 +1,4 @@
+batch_date,n_cells_total,n_cells_ran_to_completion,QD_last_min_Ah,QD_last_median_Ah,QD_last_max_Ah,pct_of_nominal_median,n_below_0.88Ah,n_below_0.825Ah,page_claim
+2017-05-12,46,36,0.8800565,0.8807247300000001,0.88336319,80.06588454545455,0,0,80% of nominal capacity (0.88 Ah)
+2017-06-30,48,48,0.82503945,0.826201975,0.88280821,75.10927045454545,43,0,75% of nominal capacity (0.88 Ah)  <-- internally inconsistent
+2018-04-12,46,44,0.88000458,0.8804325749999999,0.88167018,80.03932499999998,0,0,80% of nominal capacity (0.88 Ah)

@@ -1,0 +1,47 @@
+# ---- raw data: never committed (multi-GB, and redistributed from data.matr.io) ----
+# Data/ is excluded by contents, not as a directory, so Data/README.md
+# (the download + checksum instructions) can still be tracked.
+Data/*
+!Data/README.md
+Data_v2/
+dataset batteries/
+*.mat
+*.pkl
+*.h5
+*.hdf5
+
+# ---- external datasets fetched on demand ----
+Degradation_Prediction_Dataset_ISEA.mat
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ---- editors / OS ----
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# ---- large or transient outputs ----
+# Generated outputs that ARE committed (and hash-recorded in
+# exploration/MANIFEST.md) are not ignored:
+#   exploration/analysis_set_cells.csv
+#   exploration/analysis_set_cycles.csv
+#   exploration/cell_inventory.csv
+#   exploration/tables/*.csv
+#   exploration/figures/*.png
+# Anything else a script writes is scratch:
+exploration/external_comparison/out/*.tmp
+*.log

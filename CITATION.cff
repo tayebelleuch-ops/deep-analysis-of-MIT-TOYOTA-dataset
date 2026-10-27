@@ -1,0 +1,142 @@
+cff-version: 1.2.0
+message: >-
+  If you use this audit or the derived analysis set, please cite this repository
+  together with Severson et al. (2019) and the underlying dataset, both listed
+  under `references`.
+title: >-
+  A data-quality audit of the MIT-Stanford-TRI fast-charging battery dataset,
+  with a reproducible analysis set
+abstract: >-
+  An independent, read-only audit of the Severson/Attia fast-charging battery
+  dataset (124 published A123 APR18650M1A LFP/graphite cells in three batches),
+  read directly from the raw MATLAB v7.3 files rather than from the pre-built
+  pickles. The audit recovers the barcode and channel_id fields that the upstream
+  documentation reports as unavailable, resolves the 140 struct rows to 135
+  physical cells, tests all 21 claims made on the four dataset documentation
+  pages, records twelve substantive problems that no page mentions, and publishes
+  a documented analysis set of 135 cells and 113,559 cycles with per-cycle quality
+  flags. No cycle is masked, imputed or smoothed.
+type: software
+authors:
+  - given-names: Tayeb
+    family-names: Elleuch
+    orcid: https://orcid.org/0009-0007-9435-0587
+    alias: tayebelleuch-ops
+repository-code: >-
+  https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset
+license: MIT
+keywords:
+  - lithium-ion battery
+  - state of health
+  - remaining useful life
+  - data quality
+  - reproducibility
+  - fast charging
+  - LFP
+  - Severson
+date-released: '2026-10-27'
+
+references:
+  - type: article
+    title: >-
+      Data-driven prediction of battery cycle life before capacity degradation
+    authors:
+      - given-names: Kristen A.
+        family-names: Severson
+        orcid: https://orcid.org/0000-0002-0412-4217
+      - given-names: Peter M.
+        family-names: Attia
+        orcid: https://orcid.org/0000-0003-4745-5726
+      - given-names: Norman
+        family-names: Jin
+        orcid: https://orcid.org/0000-0003-0624-1924
+      - given-names: Nicholas
+        family-names: Perkins
+        orcid: https://orcid.org/0000-0002-0445-8436
+      - given-names: Benben
+        family-names: Jiang
+        orcid: https://orcid.org/0000-0003-1288-3798
+      - given-names: Zi
+        family-names: Yang
+        orcid: https://orcid.org/0000-0003-3741-5720
+      - given-names: Michael H.
+        family-names: Chen
+        orcid: https://orcid.org/0000-0003-4273-5817
+      - given-names: Muratahan
+        family-names: Aykol
+        orcid: https://orcid.org/0000-0001-6433-7217
+      - given-names: Patrick K.
+        family-names: Herring
+        orcid: https://orcid.org/0000-0001-9922-1169
+      - given-names: Dimitrios
+        family-names: Fraggedakis
+        orcid: https://orcid.org/0000-0003-3301-6255
+      - given-names: Martin Z.
+        family-names: Bazant
+        orcid: https://orcid.org/0000-0002-8200-4501
+      - given-names: Stephen J.
+        family-names: Harris
+        orcid: https://orcid.org/0000-0002-5211-3934
+      - given-names: William C.
+        family-names: Chueh
+        orcid: https://orcid.org/0000-0002-7066-3470
+      - given-names: Richard D.
+        family-names: Braatz
+        orcid: https://orcid.org/0000-0003-4304-3484
+    journal: Nature Energy
+    volume: 4
+    issue: 5
+    start: 383
+    end: 391
+    year: 2019
+    month: 5
+    issn: 2058-7546
+    publisher:
+      name: Springer Nature
+    doi: 10.1038/s41560-019-0356-8
+    url: https://www.nature.com/articles/s41560-019-0356-8
+
+  - type: data
+    title: >-
+      Data-driven prediction of battery cycle life before capacity degradation
+      (experimental dataset)
+    authors:
+      - given-names: Kristen A.
+        family-names: Severson
+      - given-names: Peter M.
+        family-names: Attia
+      - given-names: Norman
+        family-names: Jin
+      - given-names: Nicholas
+        family-names: Perkins
+      - given-names: Benben
+        family-names: Jiang
+      - given-names: Zi
+        family-names: Yang
+      - given-names: Michael H.
+        family-names: Chen
+      - given-names: Muratahan
+        family-names: Aykol
+      - given-names: Patrick K.
+        family-names: Herring
+      - given-names: Dimitrios
+        family-names: Fraggedakis
+      - given-names: Martin Z.
+        family-names: Bazant
+      - given-names: Stephen J.
+        family-names: Harris
+      - given-names: William C.
+        family-names: Chueh
+      - given-names: Richard D.
+        family-names: Braatz
+    publisher:
+      name: Toyota Research Institute
+    year: 2019
+    month: 1
+    date-released: '2019-01-23'
+    url: https://data.matr.io/1/projects/5c48dd2bc625d700019f3204
+    license: CC-BY-4.0
+    notes: >-
+      Three MATLAB v7.3 batch files, dated 2017-05-12, 2017-06-30 and 2018-04-12.
+      SHA-256 checksums are recorded in Data/README.md and exploration/MANIFEST.md.
+      The raw files are not redistributed in this repository.

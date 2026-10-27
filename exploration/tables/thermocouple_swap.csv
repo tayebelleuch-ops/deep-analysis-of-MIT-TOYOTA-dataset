@@ -1,0 +1,4 @@
+batch_date,ch15_policy,ch16_policy,same_policy,testable,ch15_T_rise_C,ch16_T_rise_C,sse_as_stored,sse_if_swapped,swap_fits_better,note
+2017-05-12,5.4C(60%)-3C,5.4C(60%)-3C,True,False,6.539538999999998,7.108147500000001,2.2112879288473124,2.2112879288473124,,undetectable: both channels run the same policy
+2017-06-30,3.6C(30%)-6C,3.6C(9%)-5C,False,True,7.657224500000003,8.555202500000002,4.964929581858929,4.897605559482541,True,"policies differ, so the assignment is testable"
+2018-04-12,3.7C(31%)-5.9C,5.6C(36%)-4.3C,False,True,5.576985236451966,7.426933617460659,4.391584539904068,2.50039397172172,True,"policies differ, so the assignment is testable"

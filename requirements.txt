@@ -1,0 +1,24 @@
+# Environment that actually produced every result in exploration/.
+#
+# Recorded from the interpreter used for the 2026-10-27 rebuild (see
+# exploration/MANIFEST.md, which carries the SHA-256 of every generated file).
+# This is deliberately NOT the upstream 2019 pinned environment (Python 3.7,
+# h5py 2.8.0, numpy 1.22): upstream's BuildPkl_Batch*.ipynb notebooks use the
+# `h5py.Dataset.value` API, which was removed in h5py 3.0, and nothing in
+# exploration/ can run under it.
+#
+#   Python      3.13.5  (CPython)
+#   HDF5        2.0.0   (bundled with h5py 3.16.0)
+#   platform    Linux-6.12.107+deb13-amd64-x86_64-with-glibc2.41
+#
+# Set up with:
+#   python3.13 -m venv .venv
+#   .venv/bin/python -m pip install -r requirements.txt
+
+h5py==3.16.0
+matplotlib==3.11.2
+numpy==2.5.4
+pandas==3.0.6
+scipy==1.18.1
+
+# Nothing in exploration/ imports Jupyter; the scripts are run directly.
