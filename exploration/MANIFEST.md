@@ -6,8 +6,14 @@ nothing else. The rebuild is byte-reproducible: deleting every generated output 
 re-running the loop reproduces all 20 tables, both analysis-set files, `cell_inventory.csv`
 and all 11 figures byte-for-byte.
 
-**Not yet tagged.** This manifest is the candidate record for a `v1` tag; the tag will be
-created only on explicit instruction.
+**Tagged `v1.0`** at commit `4e54679` (annotated tag; `refs/tags/v1.0^{}` resolves to
+that commit). This manifest is the provenance record for that tag.
+
+The three generated output files are **unchanged since `v1.0`** — the only commit after
+it moved the licence-scope notes from `LICENSE` into `NOTICE.md` and updated this
+paragraph. The SHA-256 values recorded below therefore still apply to the files as
+they stand, and `git diff v1.0 -- exploration/analysis_set_cells.csv
+exploration/analysis_set_cycles.csv exploration/cell_inventory.csv` is empty.
 
 ## Raw inputs (read-only, never modified)
 

@@ -222,6 +222,8 @@ these out.
 ## Licensing
 
 Three different sets of terms apply to three different things in this repository.
+[`LICENSE`](LICENSE) is the plain MIT licence text; [`NOTICE.md`](NOTICE.md) records
+exactly which files each set of terms covers.
 
 **The dataset** — the three raw `.mat` files — is distributed by Toyota Research
 Institute under **CC BY 4.0**, as stated on TRI's own catalog page
@@ -243,8 +245,9 @@ attributed as:
 > Modified: cells joined on barcode, cycle life recomputed, records truncated at the
 > 0.88 Ah crossing, quality flags added. See `exploration/REPORT.md` §6.
 
-**The code in this repository** is our own and is licensed under the terms in
-[`LICENSE`](LICENSE).
+**The code in this repository** is our own and is licensed under
+[`LICENSE`](LICENSE) (MIT). [`NOTICE.md`](NOTICE.md) sets out the scope: which files
+the MIT licence covers and which carry the dataset's terms instead.
 
 **Upstream's loading code** — the MATLAB scripts and `BuildPkl_Batch*.ipynb` notebooks
 at
