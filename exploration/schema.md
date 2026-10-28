@@ -116,8 +116,8 @@ observed ranges:
 
 | field | unit | length |
 |---|---|---|
-| `t` | minutes | native sample count (~750–1100) |
-| `I` | C-rate (not A) | native; ranges ≈ −4.0 … +5.0 for a 4C discharge / 5C charge |
+| `t` | minutes | native sample count; median **1065 / 1269 / 730** by batch |
+| `I` | C-rate (not A) | native; typically −4.0 … +8.2; full range **−12.213 … +8.169** (see below) |
 | `V` | V | native; spans the 2.0–3.6 V cutoffs exactly |
 | `Qc`, `Qd` | Ah | native |
 | `T` | °C | native |
@@ -126,7 +126,32 @@ observed ranges:
 | `discharge_dQdV` | Ah/V | **1000**, interpolated onto `Vdlin`; ≤ 0 |
 
 `I` is in C-rate, not amperes: a 4C discharge of a 1.1 Ah cell is 4.4 A, and the
-observed minimum is −4.0, so the series is normalised by capacity.
+**modal** discharge minimum is −4.0, so the series is normalised by capacity.
+
+**The charge range reaches +8.169 C, not ~+5.** 2017-05-12 runs six policies that charge
+above 6C — `7C(30%)-3.6C`, `7C(40%)-3.6C`, `7C(40%)-3C`, `8C(15%)-3.6C`, `8C(25%)-3.6C`
+and `8C(35%)-3.6C`, across 12 cells — so a peak of 8.17 C in that batch is the programmed
+rate, not an anomaly. Any check on current must therefore be **relative to the cell's own
+policy**: an absolute 7 C ceiling flags 8,604 cycles that are doing exactly what they were
+told to.
+
+Observed range per batch, over all 114,692 measured cycles:
+
+| batch | min `I` | max `I` |
+|---|---|---|
+| 2017-05-12 | −4.708 | **+8.169** |
+| 2017-06-30 | −4.206 | +6.508 |
+| 2018-04-12 | **−12.213** | +7.123 |
+
+The 4C discharge floor is the *modal* minimum, not the extreme: three 2018-04-12 cycles
+draw 12.1–12.2 C on discharge, against a programmed 4–4.6 C, and are flagged as outliers
+(`REPORT_v1.1.md` §5.1). They are the only cycles anywhere exceeding 1.5× their cell's own
+programmed rate.
+
+**Native lengths are wider than a single range conveys.** Measured over all 114,738
+cycles: medians 1065 / 1269 / 730 by batch, p25–p75 within about ±5% of each median, and
+extremes of 453 (2017-06-30) and **61,901** (2018-04-12 ch 46). The two cells responsible
+for the long tail are described in `REPORT_v1.1.md` §5.2.
 
 ### `Vdlin` is one fixed grid
 

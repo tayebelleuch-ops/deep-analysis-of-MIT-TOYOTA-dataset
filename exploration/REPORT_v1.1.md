@@ -262,7 +262,16 @@ figure.
 
 ---
 
-## 7. Proposed corrections — nothing has been applied
+## 7. Corrections
+
+**Four factual corrections have been applied**, in a separate docs commit for review:
+the two column counts in `REPORT.md` §7, and in `schema.md` the `I` range, the native
+length range and the 7C/8C policies behind them (marked **APPLIED** below).
+
+**Everything else here remains a proposal and is applied nowhere** — in particular every
+interpretive item: the cause of ch 46's bloat, the two undocumented 2017-05-12 events,
+the CV-share disagreement and the `is_clean_cycle` corrections. Those are worded as
+observations by design; they rest on inference the data supports but does not settle.
 
 ### 7.1 To `analysis_set_cycles.csv`
 
@@ -282,8 +291,8 @@ either choice and the correction list is ready if the other is preferred.
 
 | § | says | proposed |
 |---|---|---|
-| `cycles` | `I` ranges "≈ −4.0 … +5.0 for a 4C discharge / 5C charge" | **−4.009 … +8.013 C**. 2017-05-12 runs **7C and 8C** charging policies (`7C(30%)-3.6C`, `8C(15%)-3.6C` and four more) |
-| `cycles` | `t` native length "~750–1100" | medians **1,065 / 1,269 / 730**; 2017-06-30's p75 is 1,421; the maximum anywhere is **61,901** |
+| `cycles` **APPLIED** | `I` ranges "≈ −4.0 … +5.0 for a 4C discharge / 5C charge" | full range **−12.213 … +8.169 C**. 2017-05-12 runs **7C and 8C** charging policies (`7C(30%)-3.6C`, `8C(15%)-3.6C` and four more, across 12 cells); the −12.2 C extreme is one of three flagged 2018-04-12 discharge outliers |
+| `cycles` **APPLIED** | `t` native length "~750–1100" | medians **1,065 / 1,269 / 730**; 2017-06-30's p75 is 1,421; the maximum anywhere is **61,901** |
 | `Vdlin` | "`np.linspace(3.5, 2.0, 1000)`, byte-identical for every cell (checked first and last cell of each)" | true to **1 ulp, not bitwise** — 15 of 1000 points differ by ≤4.44e-16. Now verified on **all 140 rows**, not two per batch |
 | `cycles` | `Qdlin`, `Tdlin`, `discharge_dQdV` length "**1000**" | 1000 **except on the 46 placeholder rows, where it is 2** — consistent with the cycle-indexing section, but the length table does not say so |
 
@@ -292,7 +301,7 @@ either choice and the correction list is ready if the other is preferred.
 | § | says | proposed |
 |---|---|---|
 | §2 | "The within-cycle sampling interval is ~5 s in all three batches" | modal 5 s, but only **54.2%** of 2017-06-30's cycles are within ±0.5 s of it (U18). The IR-pulse conclusion is unaffected |
-| §7 | `analysis_set_cycles.csv` … **12 columns**; `analysis_set_cells.csv` … **29 columns** | **13** and **31**. `cell_inventory.csv`'s stated 41 is correct |
+| §7 **APPLIED** | `analysis_set_cycles.csv` … **12 columns**; `analysis_set_cells.csv` … **29 columns** | **13** and **31**. `cell_inventory.csv`'s stated 41 is correct |
 | §4.4 | "no missing values anywhere" (summary fields) | extend: **zero NaN in any of the nine within-cycle series**, over all 114,738 cycles — and `t[0] == 0` in every cycle, and time is strictly increasing in every cycle beyond float64 rounding |
 | §4.4 | median CE excess "0.2 mAh" | **0.117 mAh** over series-valid cycles; the conclusion is unchanged |
 | §4.2 item 3 | "no C/10 cycle exists" — from 840 cycles | now from **all 114,692 measured cycles**; minimum peak \|I\| 4.0006 C, zero cycles below 1.0 C |

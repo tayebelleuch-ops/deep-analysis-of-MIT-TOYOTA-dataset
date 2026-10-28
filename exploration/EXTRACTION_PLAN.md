@@ -65,7 +65,7 @@ Dereferenced as `cycles[field][j, 0]`; every one is **float64**, stored `(1, n)`
 | field | unit | length | observed range (sampled, 420 cycles) |
 |---|---|---|---|
 | `t` | minutes since the start of the cycle | native | 0 … 552.08 |
-| `I` | **C-rate**, not amperes | native | −4.009 … **+8.013** |
+| `I` | **C-rate**, not amperes | native | −4.009 … **+8.013** (sampled; the full-data maximum is **+8.169**) |
 | `V` | V | native | 0 … 3.618 |
 | `Qc` | Ah (charge throughput) | native | 0 … 1.0786 |
 | `Qd` | Ah (discharge throughput) | native | 0 … 1.0787 |
