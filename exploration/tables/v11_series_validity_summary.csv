@@ -1,0 +1,11 @@
+check,n_fail,n_cells,n_fail_2017-05-12,n_fail_2017-06-30,n_fail_2018-04-12
+series_present,46,46,46,0,0
+series_time_monotone,0,0,0,0,0
+series_time_contiguous,135,69,78,48,9
+series_duration_plausible,131,68,78,47,6
+series_length_plausible,53,2,5,0,48
+series_voltage_in_range,15,2,14,0,1
+series_current_in_range,3,3,0,0,3
+series_grid_in_range,48,32,21,19,8
+series_no_nan,0,0,0,0,0
+is_series_valid,249,97,138,53,58

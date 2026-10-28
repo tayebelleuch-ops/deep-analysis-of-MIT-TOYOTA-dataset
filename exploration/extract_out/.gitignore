@@ -1,0 +1,5 @@
+# Extraction outputs are hosted, never committed (see exploration/EXTRACTION.md).
+# This directory is self-ignoring so that no .h5 or index CSV can be staged by
+# accident; only this file is tracked, to record that the directory is expected.
+*
+!.gitignore
