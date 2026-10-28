@@ -49,9 +49,14 @@ def series(date: str, h5_row: int, fields=("t", "V", "I", "Qd", "Qc")) -> dict:
 def load() -> tuple[pd.DataFrame, pd.DataFrame]:
     idx = pd.read_csv(OUT / "within_cycle_index.csv")
     cy = pd.read_csv(HERE / "analysis_set_cycles.csv")
-    j = idx.merge(cy[["cell_uid", "cycle", "is_measured_cycle", "is_artifact_cycle",
-                      "is_restart_cycle", "is_junction_cycle", "is_clean_cycle"]],
-                  on=["cell_uid", "cycle"], how="left")
+    v1 = ["is_measured_cycle", "is_artifact_cycle", "is_restart_cycle",
+          "is_junction_cycle", "is_clean_cycle"]
+    j = idx.merge(cy[["cell_uid", "cycle"] + v1], on=["cell_uid", "cycle"], how="left")
+    # a left merge leaves these as object dtype with NaN on the 1,179 beyond_crossing
+    # rows, which are not in v1.0 at all. Cast to a real bool, False off the analysis
+    # set, so that `~` means logical negation rather than integer bit-flipping.
+    for c in v1:
+        j[c] = j[c].map({True: True, False: True and False}).fillna(False).astype(bool)
     return idx, j
 
 
@@ -72,12 +77,15 @@ def crosstab(j: pd.DataFrame) -> None:
 
     print("\nhow often each v1.0 flag and each series check fire together:")
     rows = []
-    for vf in ["is_artifact_cycle", "is_restart_cycle", "is_junction_cycle",
-               "is_measured_cycle"]:
-        sel = ~ins[vf] if vf == "is_measured_cycle" else ins[vf]
-        rows.append({"v1.0_flag": vf, "n_flagged": int(sel.sum()),
-                     "of_which_series_invalid": int((sel & ~ins.is_series_valid).sum()),
-                     "pct": 100 * (sel & ~ins.is_series_valid).mean() / max(sel.mean(), 1e-12)})
+    for label, sel in [("is_artifact_cycle", ins.is_artifact_cycle),
+                       ("is_restart_cycle", ins.is_restart_cycle),
+                       ("is_junction_cycle", ins.is_junction_cycle),
+                       ("NOT is_measured_cycle", ~ins.is_measured_cycle)]:
+        n = int(sel.sum())
+        bad = int((sel & ~ins.is_series_valid).sum())
+        rows.append({"v1.0_flag": label, "n_flagged": n,
+                     "of_which_series_invalid": bad,
+                     "pct_of_flagged": 100 * bad / n if n else float("nan")})
     t = pd.DataFrame(rows)
     print(t.to_string(index=False, float_format=lambda x: f"{x:.1f}"))
     t.to_csv(TABLES / "v11_flag_overlap.csv", index=False)
@@ -88,8 +96,8 @@ def crosstab(j: pd.DataFrame) -> None:
     for f in FLAGS:
         s = bad[~bad[f]]
         rows.append({"check": f, "n_fail": len(s),
-                     "v1.0_clean (missed by v1.0)": int(s.is_clean_cycle.sum()),
-                     "v1.0_already_flagged": int((~s.is_clean_cycle).sum()),
+                     "missed_by_v1_0": int(s.is_clean_cycle.sum()),
+                     "already_flagged_by_v1_0": int((~s.is_clean_cycle).sum()),
                      "cells": int(s.cell_uid.nunique())})
     t = pd.DataFrame(rows)
     print(t.to_string(index=False))
@@ -126,7 +134,7 @@ def traces(j: pd.DataFrame) -> None:
     for c, (label, r) in enumerate(picks):
         nb = ins[(ins.cell_uid == r.cell_uid)
                  & (ins.cycle.between(r.cycle - 8, r.cycle - 4))
-                 & ins.is_clean_cycle]
+                 & ins.is_clean_cycle & ins.is_series_valid]
         d = series(r.source_batch_date, int(r.h5_row))
         col = ps.BATCH_COLORS[r.source_batch_date]
         for row, (k, ylab) in enumerate((("V", "V (V)"), ("I", "I (C-rate)"),
@@ -136,7 +144,7 @@ def traces(j: pd.DataFrame) -> None:
                 n = nb.iloc[0]
                 dn = series(n.source_batch_date, int(n.h5_row))
                 ax.plot(dn["t"], dn[k], color=ps.INK2, lw=0.8, ls=(0, (4, 2)),
-                        label=f"clean cycle {int(n.cycle)}")
+                        label=f"valid cycle {int(n.cycle)}")
             ax.plot(d["t"], d[k], color=col, lw=1.0, label=f"{label} cycle {int(r.cycle)}")
             ax.set_ylabel(ylab)
             if row == 2:
@@ -174,33 +182,50 @@ def cycle40(j: pd.DataFrame) -> None:
     print(f"  => the series' own Qd reaches the same 2.884 Ah the summary reports, so the")
     print(f"     summary is a faithful readout of a corrupt row. The SERIES is the bad thing.")
 
-    fig, axes = plt.subplots(2, 3, figsize=(12.6, 6.4))
-    ref = j[(j.cell_uid == uid) & (j.cycle == 30)].iloc[0]
-    dref = series(ref.source_batch_date, int(ref.h5_row))
-    for c, cyc in enumerate((39, 40, 41)):
-        r = j[(j.cell_uid == uid) & (j.cycle == cyc)].iloc[0]
+    cell = j[j.cell_uid == uid].sort_values("cycle")
+    badc = cell[~cell.is_series_valid]
+    print(f"\n  the cell's series-invalid cycles: {len(badc)} of {len(cell)}, "
+          f"spanning cycles {int(badc.cycle.min())}-{int(badc.cycle.max())}")
+    print(f"  of those, is_clean_cycle = True in v1.0: {int(badc.is_clean_cycle.sum())}")
+    # a genuinely valid reference cycle -- cycle 30 is NOT one, despite being
+    # is_clean_cycle = True in v1.0: it carries a 48 h internal gap of its own.
+    ref = cell[cell.is_series_valid & (cell.cycle > badc.cycle.max())].iloc[0]
+    print(f"  nearest fully valid cycle after the bad run: {int(ref.cycle)} "
+          f"(t_end {ref.t_end_min:.2f} min)")
+
+    fig, axes = plt.subplots(2, 2, figsize=(11.4, 7.0))
+    col = ps.BATCH_COLORS["2017-05-12"]
+    lo, hi = int(badc.cycle.min()), int(badc.cycle.max())
+    for ax, (c, ylab, logy) in zip(axes[0], [("t_end_min", "cycle duration (min)", True),
+                                             ("n_samples", "samples in the cycle", True)]):
+        ax.plot(cell.cycle, cell[c], color=col, lw=0.8)
+        ax.axvspan(lo, hi, color="#b3261e", alpha=0.10, lw=0)
+        if logy:
+            ax.set_yscale("log")
+        ax.set_xlabel("cycle"); ax.set_ylabel(ylab)
+        ax.set_title(f"{ylab} over the cell's life")
+    axes[0][0].annotate(f"cycles {lo}-{hi}\nseries-invalid", xy=(hi, cell.t_end_min.max()),
+                        xytext=(hi + 140, cell.t_end_min.max() * 0.8), fontsize=7.5,
+                        color="#b3261e")
+
+    r40 = cell[cell.cycle == 40].iloc[0]
+    for ax, r, lab in ((axes[1][0], r40, f"cycle {int(r40.cycle)} (series-invalid)"),
+                       (axes[1][1], ref, f"cycle {int(ref.cycle)} (series-valid)")):
         d = series(r.source_batch_date, int(r.h5_row))
-        for row, (k, ylab) in enumerate((("V", "V (V)"), ("Qd", "Qd (Ah)"))):
-            ax = axes[row][c]
-            ax.plot(dref["t"], dref[k], color=ps.INK2, lw=0.8, ls=(0, (4, 2)),
-                    label="cycle 30 (clean)")
-            ax.plot(d["t"], d[k], color=ps.BATCH_COLORS["2017-05-12"], lw=0.7,
-                    label=f"cycle {cyc}")
-            ax.set_ylabel(ylab)
-            ax.set_xlabel("t (minutes)")
-            if row == 0:
-                ax.set_title(f"cycle {cyc}: n={int(r.n_samples):,}, "
-                             f"t_end={r.t_end_min:,.0f} min\n"
-                             f"series_valid={r.is_series_valid}")
-                ax.axhline(3.6, color="#b3261e", lw=0.6, ls=":")
-                ax.legend(loc="best")
-    fig.suptitle("EL150800453240 (2017-05-12 ch 17, struct index 18): cycles 39-41 are all "
-                 "corrupt, not just cycle 40")
-    ps.save(fig, "figv11_02_cell17_cycles39_41",
-            "The 3.6 V charge cutoff is the dotted red line. Cycle 39 exceeds it, reaching "
-            "5.04 V. All three cycles span >2,600 minutes against ~54 for a normal cycle of "
-            "this cell. v1.0 flags only cycle 40 (as an artifact); cycles 39 and 41 are "
-            "is_clean_cycle = True.")
+        ax.plot(d["t"], d["V"], color=col, lw=0.6)
+        ax.axhline(3.6, color="#b3261e", lw=0.6, ls=":")
+        ax.axhline(2.0, color="#b3261e", lw=0.6, ls=":")
+        ax.set_xlabel("t (minutes)"); ax.set_ylabel("V (V)")
+        ax.set_title(f"{lab}\nn={int(r.n_samples):,}, t_end={r.t_end_min:,.1f} min, "
+                     f"V_max={r.V_max:.3f} V")
+    fig.suptitle("EL150800453240 (2017-05-12 ch 17, struct index 18): the corrupt run is "
+                 f"cycles {lo}-{hi}, not just cycle 40")
+    ps.save(fig, "figv11_02_cell17_corrupt_run",
+            "Shaded band: the cycles that fail a series check. Their rows splice a normal "
+            "cycle onto a fragment recorded 36-48 h later, so duration and sample count "
+            "jump by ~50x while the summary still reports a plausible 1.069 Ah. v1.0 flags "
+            "only cycle 40, as a capacity artifact. The 2.0 V and 3.6 V cutoffs are dotted; "
+            "the bad run breaches both.")
 
 
 def bloated(j: pd.DataFrame) -> None:
@@ -262,7 +287,7 @@ def bloated(j: pd.DataFrame) -> None:
 
 
 def qdlin_corruption(j: pd.DataFrame) -> None:
-    h("ITEM 8  Qdlin CORRUPTION ON RESTART CYCLES (candidate U13)")
+    h("ITEM 8  THE INTERPOLATED FIELDS GO PHYSICALLY IMPOSSIBLE (candidate U13/U14)")
     ps.apply_style()
     ins = j[~j.is_placeholder]
     bad = ins[~ins.series_grid_in_range].copy()
@@ -278,36 +303,94 @@ def qdlin_corruption(j: pd.DataFrame) -> None:
     print(f"  magnitude: Qdlin reaches {bad.Qdlin_max.max():,.1f} Ah and "
           f"{bad.Qdlin_min.min():,.1f} Ah on a 1.1 Ah cell")
 
+    # Do they cluster in cycle number? A test interruption is a wall-clock event, so
+    # cells cycling at different rates meet it at different cycle numbers -- which is
+    # why REPORT.md section 4.1 finds the 2017-06-30 event spread over cycles 246-258.
+    # Clustering window: 30 cycles, wide enough to hold that known 13-cycle spread.
+    CLUSTER_W = 30
+    print(f"\nclustered in cycle number (cycles within {CLUSTER_W} of each other):")
+    crows = []
+    for b, sb in bad.groupby("source_batch_date"):
+        cyc = np.sort(sb.cycle.values)
+        groups, cur = [], [int(cyc[0])]
+        for x in cyc[1:]:
+            if int(x) - cur[-1] <= CLUSTER_W:
+                cur.append(int(x))
+            else:
+                groups.append(cur)
+                cur = [int(x)]
+        groups.append(cur)
+        for gcl in groups:
+            sub = sb[sb.cycle.isin(gcl)]
+            crows.append({
+                "batch_date": b, "cycle_lo": int(min(gcl)), "cycle_hi": int(max(gcl)),
+                "n_cycles": len(sub), "n_cells": int(sub.cell_uid.nunique()),
+                "chargetime_min_min": sub.chargetime_min.min(),
+                "chargetime_min_max": sub.chargetime_min.max(),
+                "n_v1_0_clean": int(sub.is_clean_cycle.sum()),
+                "n_v1_0_restart": int(sub.is_restart_cycle.sum()),
+                "channels": ",".join(map(str, sorted(sub.source_channel.unique()))),
+            })
+    ct = pd.DataFrame(crows)
+    print(ct.to_string(index=False, float_format=lambda x: f"{x:.1f}"))
+    ct.to_csv(TABLES / "v11_grid_out_of_range_clusters.csv", index=False,
+              float_format="%.4g")
+    # the restarts REPORT.md section 4.1 documents, as (batch, cycle_lo, cycle_hi)
+    DOCUMENTED = [("2017-05-12", 1, 20), ("2017-05-12", 870, 915),
+                  ("2017-06-30", 240, 265), ("2017-06-30", 300, 335),
+                  ("2017-06-30", 990, 1010)]
+    MIN_CELLS = 4            # a single cell is a cell fault, not a rig event
+    multi = ct[ct.n_cells >= MIN_CELLS]
+    print(f"\nclusters touching {MIN_CELLS}+ cells -- candidates for a common "
+          f"wall-clock event:")
+    for _, r in multi.iterrows():
+        known = next((f"documented ({lo}-{hi})" for b, lo, hi in DOCUMENTED
+                      if b == r.batch_date and lo <= r.cycle_lo and r.cycle_hi <= hi),
+                     "UNDOCUMENTED")
+        print(f"  {r.batch_date} cycles {r.cycle_lo}-{r.cycle_hi}: {r.n_cells} cells "
+              f"(ch {r.channels}), chargetime {r.chargetime_min_min:.1f}-"
+              f"{r.chargetime_min_max:.1f} min, {r.n_v1_0_clean}/{r.n_cycles} clean in "
+              f"v1.0 -> {known}")
+    print("\n  A cluster with normal charge time and no IR = 0 reading is invisible to")
+    print("  both v1.0 restart detectors (REPORT.md section 4.3.1), so it could only be")
+    print("  found in the voltage-domain fields.")
+
     if len(bad):
         fig, axes = plt.subplots(1, 2, figsize=(11.0, 4.3))
         worst = bad.nlargest(1, "Qdlin_max").iloc[0]
         d = series(worst.source_batch_date, int(worst.h5_row))
         nb = ins[(ins.cell_uid == worst.cell_uid)
-                 & (ins.cycle == worst.cycle - 10)]
+                 & (ins.cycle.between(worst.cycle - 15, worst.cycle - 5))
+                 & ins.is_series_valid]
         axes[0].plot(d["vdlin"], d["Qdlin"], color="#b3261e", lw=0.9,
                      label=f"cycle {int(worst.cycle)} (restart)")
         if len(nb):
             dn = series(nb.iloc[0].source_batch_date, int(nb.iloc[0].h5_row))
             axes[0].plot(dn["vdlin"], dn["Qdlin"], color=ps.INK2, lw=0.9,
-                         ls=(0, (4, 2)), label=f"cycle {int(nb.iloc[0].cycle)} (clean)")
+                         ls=(0, (4, 2)),
+                         label=f"cycle {int(nb.iloc[0].cycle)} (series-valid)")
         axes[0].set_xlabel("Vdlin (V)"); axes[0].set_ylabel("Qdlin (Ah)")
         axes[0].invert_xaxis()
         axes[0].set_title(f"{worst.cell_uid} {worst.source_batch_date} "
                           f"ch{int(worst.source_channel)}: Qdlin blows up")
         axes[0].legend(loc="best")
-        axes[1].plot(bad.Qdlin_max.abs().clip(lower=1e-3).sort_values().values,
+        # how far out of the band each cycle goes, on whichever side is worse:
+        # for many of these it is the negative excursion, not the positive one.
+        excursion = np.maximum(bad.Qdlin_max.abs(), bad.Qdlin_min.abs())
+        axes[1].plot(np.sort(excursion.values),
                      np.arange(len(bad)) / max(len(bad) - 1, 1), marker="o", ms=3,
                      color="#b3261e", lw=0.8)
         axes[1].set_xscale("log")
         axes[1].axvline(1.1, color=ps.INK2, lw=0.8, ls=":")
-        axes[1].set_xlabel("max |Qdlin| in the cycle (Ah, log scale)")
+        axes[1].set_xlabel("worst |Qdlin| excursion in the cycle (Ah, log scale)")
         axes[1].set_ylabel("cumulative fraction")
         axes[1].set_title("how far out of range they go\n(dotted: 1.1 Ah nominal)")
         ps.save(fig, "figv11_04_qdlin_corruption",
                 "Left: the interpolated discharge curve of the worst-affected restart cycle "
                 "against a clean cycle of the same cell, on the stored 3.5-2.0 V grid. Right: "
                 "the distribution of max |Qdlin| over every cycle that leaves the physical "
-                "band. The summary-level capacity artifact on these cycles is ~1%; the "
+                "band, on whichever side is worse. The summary-level capacity artifact "
+                "on these cycles is ~1%; the "
                 "interpolated curve is wrong by up to three orders of magnitude.")
 
 

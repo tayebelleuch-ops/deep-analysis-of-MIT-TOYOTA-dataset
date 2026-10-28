@@ -92,7 +92,17 @@ def item3(idx: pd.DataFrame) -> None:
     g = t.groupby("batch_date").peak_V.agg(["count", "median", "min", "max", "std"])
     print(g.to_string(float_format=lambda x: f"{x:.4f}"))
     t.to_csv(TABLES / "v11_dqdv_peak_cycle100.csv", index=False, float_format="%.6g")
-    spread = g["median"].max() - g["median"].min()
+    deg = t[t.peak_V < 2.001]
+    print(f"    {len(deg)} of {len(t)} cells have their dQdV minimum at the LAST grid")
+    print(f"    point (2.0 V) with magnitude {deg.peak_dQdV.min():.1f}..{deg.peak_dQdV.max():.1f}")
+    print(f"    Ah/V -- an interpolation edge artifact, not a phase-transition peak:")
+    for _, r in deg.iterrows():
+        print(f"      {r.cell_uid} {r.batch_date} ch{int(r.channel)}")
+    print("    excluding them, the peak is far tighter than the raw spread suggests:")
+    g2 = t[t.peak_V > 2.001].groupby("batch_date").peak_V.agg(
+        ["count", "median", "min", "max", "std"])
+    print(g2.to_string(float_format=lambda x: f"{x:.4f}"))
+    spread = g2["median"].max() - g2["median"].min()
     print(f"    spread of batch medians: {spread:.4f} V "
           f"({spread/abs(float(np.diff(ref)[0])):.1f} grid steps)")
     print("    -> REPORT.md section 4.4 uses this alignment (via fig07) as independent")

@@ -1,0 +1,4 @@
+batch_date,n_cycles,n_cycles_with_dt<=0,n_cycles_with_dt==0,n_cycles_with_dt<0,cells_affected,worst_n_dup_in_one_cycle
+2017-05-12,38765,143,20,123,46,1
+2017-06-30,24920,115,15,100,44,1
+2018-04-12,51007,0,0,0,0,0
