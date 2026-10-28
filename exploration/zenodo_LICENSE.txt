@@ -1,0 +1,39 @@
+These files are derived data, made available under Creative Commons Attribution 4.0
+International (CC BY 4.0) — https://creativecommons.org/licenses/by/4.0/
+
+They are NOT covered by the MIT licence of the repository that produced them. The MIT
+licence covers the code; these data files carry the terms of the dataset they adapt.
+
+ATTRIBUTION
+
+Derived from Severson, K. A., Attia, P. M., Jin, N., Perkins, N., Jiang, B., Yang, Z.,
+Chen, M. H., Aykol, M., Herring, P. K., Fraggedakis, D., Bazant, M. Z., Harris, S. J.,
+Chueh, W. C., & Braatz, R. D. (2019). Data-driven prediction of battery cycle life
+before capacity degradation. Nature Energy, 4(5), 383-391.
+https://doi.org/10.1038/s41560-019-0356-8
+
+Dataset: https://data.matr.io/1/projects/5c48dd2bc625d700019f3204 (CC BY 4.0),
+distributed by Toyota Research Institute.
+
+STATEMENT OF MODIFICATIONS
+
+The nine within-cycle series (I, V, T, Qc, Qd, t, Qdlin, Tdlin, discharge_dQdV), the six
+summary series not carried by the v1.0 analysis set (IR, QCharge, Tavg, Tmax, Tmin,
+chargetime) and the Vdlin voltage grid were extracted from the three raw .mat batch
+structs and rewritten as HDF5 plus a CSV index.
+
+  - Cells were resolved by channel_id and barcode, never by struct position, and keyed by
+    upper-cased barcode.
+  - Cycles of the five cells continued across batches were concatenated into one
+    numbering, matching the analysis set.
+  - Eight of the nine series were converted from float64 to float32; `t` was not.
+  - Cycles excluded from the v1.0 analysis set are RETAINED and flagged
+    (beyond_crossing, is_placeholder) rather than dropped.
+  - Nine series-level validity flags were added, each with a stated threshold.
+
+No value was masked, imputed, smoothed, interpolated or repaired. The raw .mat files were
+opened read-only and never modified.
+
+Full schema, keys, flags and reproduction commands: exploration/EXTRACTION.md
+Findings and the audit: exploration/REPORT_v1.1.md
+Provenance and SHA-256: exploration/MANIFEST_v1.1.md
