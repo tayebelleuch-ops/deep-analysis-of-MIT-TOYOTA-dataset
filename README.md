@@ -263,3 +263,25 @@ list of cell identifiers — a fact about the published dataset, not as code.
 
 See [`CITATION.cff`](CITATION.cff). Any use of the data should cite Severson et al.
 (2019) and the dataset, as above.
+
+### The v1.1 within-cycle data deposit
+
+The extracted within-cycle series — three HDF5 files, a per-cycle index and a per-cell
+table, described in [`exploration/EXTRACTION.md`](exploration/EXTRACTION.md) — are
+deposited on Zenodo as record `23984188`:
+
+| | |
+|---|---|
+| version DOI | `10.5281/zenodo.23984188` (cite and pin this one) |
+| concept DOI | `10.5281/zenodo.23984187` (latest version; registered only on first publish) |
+| version label | `1.1.0` |
+
+> **The record is an unpublished draft.** The DOI is reserved and does not resolve, the
+> record is private, and the files are not publicly downloadable until it is published.
+> Please do not cite it as available yet. Everything needed to rebuild the files from the
+> raw `.mat` inputs is in this repository, and
+> [`exploration/MANIFEST_v1.1.md`](exploration/MANIFEST_v1.1.md) carries the SHA-256 of
+> every one of them, so the extraction is verifiable without the deposit.
+
+These files are **derived data under CC BY 4.0**, not this repository's MIT licence — the
+same scope rule [`NOTICE.md`](NOTICE.md) applies to the analysis-set CSVs.

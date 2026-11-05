@@ -6,6 +6,12 @@ the nine **within-cycle series** that v1.0 did not carry, extracted at full cove
 [`EXTRACTION.md`](EXTRACTION.md). Hashes and environment:
 [`MANIFEST_v1.1.md`](MANIFEST_v1.1.md).
 
+**The data.** Zenodo record `23984188`, version DOI `10.5281/zenodo.23984188`, version
+label `1.1.0` — an **unpublished draft** at the time of writing, so the DOI does not
+resolve and the files are not publicly downloadable yet. Nothing in this report depends
+on that: every number here was computed from the local extraction output, whose SHA-256 is
+in `MANIFEST_v1.1.md`.
+
 **This document proposes; it does not edit.** No decision (D0–D5) changed, the three v1.0
 CSVs are byte-identical to `v1.0`, and `REPORT.md`, `schema.md`, `cleaning_plan.md` and
 `MANIFEST.md` are untouched. Corrections to them are listed in §7 for the maintainer to

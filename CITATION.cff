@@ -25,6 +25,20 @@ authors:
 repository-code: >-
   https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset
 license: MIT
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23984188
+    description: >-
+      Version DOI of the v1.1 within-cycle data deposit on Zenodo (Zenodo version
+      label 1.1.0, record 23984188). The record is an UNPUBLISHED DRAFT: this DOI
+      is reserved and does not resolve, and the files are not publicly
+      downloadable, until the record is published. Cite it only once it is public.
+  - type: doi
+    value: 10.5281/zenodo.23984187
+    description: >-
+      Concept DOI for the deposit, resolving to its latest version. Zenodo
+      registers a concept DOI only on first publish, so this one does not exist
+      yet. Prefer the version DOI above for anything that must stay reproducible.
 keywords:
   - lithium-ion battery
   - state of health
@@ -140,3 +154,29 @@ references:
       Three MATLAB v7.3 batch files, dated 2017-05-12, 2017-06-30 and 2018-04-12.
       SHA-256 checksums are recorded in Data/README.md and exploration/MANIFEST.md.
       The raw files are not redistributed in this repository.
+
+  # The related record this repository deposits: the within-cycle series extracted
+  # from the three files above. Listed as a related record rather than as a
+  # reference to cite, because it is NOT YET PUBLISHED.
+  - type: data
+    title: >-
+      Within-cycle series of the MIT-Stanford-TRI fast-charging battery dataset,
+      extracted and audited (v1.1)
+    authors:
+      - given-names: Tayeb
+        family-names: Elleuch
+        orcid: https://orcid.org/0009-0007-9435-0587
+    publisher:
+      name: Zenodo
+    version: 1.1.0
+    doi: 10.5281/zenodo.23984188
+    url: https://zenodo.org/records/23984188
+    license: CC-BY-4.0
+    notes: >-
+      Derived data: the nine within-cycle series, the six uncarried summary series
+      and the Vdlin grid, as three HDF5 files plus a per-cycle index and a per-cell
+      table. UNPUBLISHED DRAFT at the time of this commit -- the DOI is reserved,
+      the URL does not resolve, and the files are not publicly downloadable until
+      the record is published. Provenance, sizes and SHA-256 for every file are in
+      exploration/MANIFEST_v1.1.md; the layout is in exploration/EXTRACTION.md.
+      These files carry CC BY 4.0, not this repository's MIT licence.

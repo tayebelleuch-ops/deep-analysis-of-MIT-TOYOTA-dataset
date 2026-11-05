@@ -219,10 +219,20 @@ in ascending cycle order, `track_times=False` on every dataset, and no timestamp
 or version string is written into any output. Verified: deleting every output and
 re-running reproduces all six files byte-for-byte.
 
-## 7. SHA-256
+## 7. SHA-256, and where the files live
 
 See [`MANIFEST_v1.1.md`](MANIFEST_v1.1.md), which carries the hashes, sizes and the
 environment, and is the provenance record for the proposed `v1.1` tag.
+
+The files are deposited on Zenodo as record `23984188`
+(`https://zenodo.org/records/23984188`), version DOI `10.5281/zenodo.23984188`, Zenodo
+version label `1.1.0`.
+
+**The record is an unpublished draft.** The DOI is reserved and does not resolve, and the
+files are not publicly downloadable, until it is published. Pin the **version** DOI rather
+than the concept DOI `10.5281/zenodo.23984187` — which Zenodo registers only on first
+publish, so it does not exist yet — because a concept DOI resolves to "latest" and would
+silently change what a download returns.
 
 ## 8. Licence
 
@@ -249,6 +259,7 @@ dataset's terms, not this repository's MIT licence, exactly as `NOTICE.md` assig
 > flags were added. No value was masked, imputed, smoothed or repaired. See
 > `exploration/EXTRACTION.md` and `exploration/REPORT_v1.1.md`.
 
-This text ships as `LICENSE.txt` beside the data files. **Nothing has been uploaded.**
-Hosting is to be a single canonical Zenodo record, preceded by a sandbox rehearsal, and
-only after explicit confirmation; `MANIFEST_v1.1.md` §Hosting records what that needs.
+This text ships as `LICENSE.txt` beside the data files, which are uploaded to Zenodo
+record `23984188` as an **unpublished draft** — private, reversible and not publicly
+downloadable until it is published, which has not been done.
+`MANIFEST_v1.1.md` §Hosting records the record's state and what remains.
