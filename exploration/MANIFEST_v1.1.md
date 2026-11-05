@@ -3,12 +3,14 @@
 Provenance record for the **additive** v1.1 work. `MANIFEST.md` remains the record for
 `v1.0` and is **not edited**; this file sits beside it.
 
-**The data files are uploaded to an unpublished Zenodo draft; nothing is published.**
-The deposit exists as a draft with version DOI `10.5281/zenodo.23984188` (record
-`23984188`, Zenodo version label `1.1.0`). **A draft is private and reversible**: the DOI
-is reserved and does not resolve, the files are not publicly downloadable, and the record
-can still be deleted. The concept DOI `10.5281/zenodo.23984187` is registered only on
-first publish and does not exist yet. See §Hosting below.
+**The data files are published on Zenodo**: record `23984188`
+(<https://zenodo.org/records/23984188>), version DOI `10.5281/zenodo.23984188`, concept
+DOI `10.5281/zenodo.23984187`, Zenodo version label `1.1.0`, published 2026-11-05. A
+published record cannot be deleted or edited, only superseded. See §Hosting below.
+
+The `v1.1` git tag message was written before publication and still describes the
+record as a draft. The tag is **not** moved or recreated — moving a published tag would
+break anyone who pinned it — so this document is the current statement.
 
 ## What v1.1 adds, and what it leaves alone
 
@@ -160,7 +162,7 @@ diff <(sort exploration/extract_out/SHA256SUMS.txt) <(sort /path/to/previous/SHA
 sha256sum exploration/analysis_set_*.csv exploration/cell_inventory.csv
 ```
 
-## Hosting — deposited as a draft, not published
+## Hosting — published
 
 **Decision taken: a single canonical Zenodo record.** GitHub release assets were
 considered and set aside; the files are each well under the 2 GiB asset limit, but release
@@ -170,23 +172,23 @@ assets carry no DOI and are silently replaceable.
 
 | | |
 |---|---|
-| version DOI | `10.5281/zenodo.23984188` — reserved, **does not resolve while the record is a draft** |
-| concept DOI | `10.5281/zenodo.23984187` — registered only on first publish, so it does not exist yet |
+| version DOI | `10.5281/zenodo.23984188` — resolves to this version, and only this version |
+| concept DOI | `10.5281/zenodo.23984187` — resolves to whichever version is latest |
 | record | `23984188` (`https://zenodo.org/records/23984188`) |
 | Zenodo version label | `1.1.0` |
-| state | **unpublished draft.** Private, reversible, not publicly downloadable |
+| state | **published**, 2026-11-05. Public, citable, and no longer deletable or editable |
 
 The version DOI is the one to cite and the one any loader should pin: a concept DOI
 resolves to "latest", which would silently change what a pinned download returns.
 
-**Publishing is a one-way step** — a published Zenodo record cannot be deleted or edited,
-only superseded — and it has not been taken. Until it is, every statement in this
-repository about the record must say "draft", and no DOI here should be presented as
-citable.
+**Publishing was a one-way step** — a published Zenodo record cannot be deleted or edited,
+only superseded — and it has been taken. Both DOIs above are live and citable. A
+correction to the *data* would have to be a new version of the record, not an edit to this
+one.
 
 ### The steps this record went through
 
-Recorded as history; items 1–3 are done, item 4 is this commit:
+Recorded as history; all five are done:
 
 1. **Sandbox rehearsal first** on `sandbox.zenodo.org` — same files, same metadata, same
    `LICENSE.txt` — to check the record renders correctly and the upload survives a 2.2 GB
@@ -199,12 +201,15 @@ Recorded as history; items 1–3 are done, item 4 is this commit:
    this repository's, **not** Severson et al.'s — listing them would imply an endorsement
    CC BY 4.0 explicitly forbids.
 3. **`LICENSE.txt`** (the text in `EXTRACTION.md` §8) uploaded beside the data files.
-4. The reserved DOI recorded back into this file, `EXTRACTION.md`, `README.md`,
-   `REPORT_v1.1.md` and `CITATION.cff` — done in this commit, with the draft state
-   stated in each.
+4. The DOI recorded back into this file, `EXTRACTION.md`, `README.md`,
+   `REPORT_v1.1.md` and `CITATION.cff` — first while the record was a draft, and then
+   again on publication.
+5. The record **published** on 2026-11-05, and the `v1.1` tag created and pushed.
 
-Still outstanding, and **not to be done without explicit confirmation**: publishing the
-record, and creating the `v1.1` tag.
+One wording consequence, recorded rather than fixed: the `v1.1` tag message was written
+before publication and still calls the record a draft. The tag is **not** moved or
+recreated — moving a published tag would break anyone who pinned it. These documents are
+the current statement.
 
 The derived files are an adaptation of CC BY 4.0 data and carry **the dataset's terms, not
 this repository's MIT licence** — the same scope rule `NOTICE.md` applies to

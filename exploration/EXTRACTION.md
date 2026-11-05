@@ -228,11 +228,12 @@ The files are deposited on Zenodo as record `23984188`
 (`https://zenodo.org/records/23984188`), version DOI `10.5281/zenodo.23984188`, Zenodo
 version label `1.1.0`.
 
-**The record is an unpublished draft.** The DOI is reserved and does not resolve, and the
-files are not publicly downloadable, until it is published. Pin the **version** DOI rather
-than the concept DOI `10.5281/zenodo.23984187` — which Zenodo registers only on first
-publish, so it does not exist yet — because a concept DOI resolves to "latest" and would
-silently change what a download returns.
+**The record is published** (2026-11-05) and the files are publicly downloadable. Pin the
+**version** DOI `10.5281/zenodo.23984188` rather than the concept DOI
+`10.5281/zenodo.23984187`: the concept DOI resolves to "latest", so pinning it would
+silently change what a download returns when a later version appears.
+
+The `v1.1` git tag message was written before publication and still describes the record as a draft. The tag is **not** moved or recreated; this document is the current statement.
 
 ## 8. Licence
 
@@ -259,7 +260,6 @@ dataset's terms, not this repository's MIT licence, exactly as `NOTICE.md` assig
 > flags were added. No value was masked, imputed, smoothed or repaired. See
 > `exploration/EXTRACTION.md` and `exploration/REPORT_v1.1.md`.
 
-This text ships as `LICENSE.txt` beside the data files, which are uploaded to Zenodo
-record `23984188` as an **unpublished draft** — private, reversible and not publicly
-downloadable until it is published, which has not been done.
-`MANIFEST_v1.1.md` §Hosting records the record's state and what remains.
+This text ships as `LICENSE.txt` beside the data files, published on Zenodo as record
+`23984188` (<https://zenodo.org/records/23984188>) under CC BY 4.0.
+`MANIFEST_v1.1.md` §Hosting records the record's state.
