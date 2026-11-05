@@ -19,6 +19,13 @@ a clone, and finally a one-off download into ``~/.cache/matr_clean`` from URLs p
 to the ``v1.0`` tag. Every file is checked against the SHA-256 recorded for that tag
 before it is used.
 
+What is **not** here: ``IR``, ``QCharge``, ``Tavg``, ``Tmax``, ``Tmin``,
+``chargetime``, the nine within-cycle series and the ``Vdlin`` grid. Of the struct's
+per-cycle measurements the CSVs carry ``QDischarge`` alone. A later release will read
+the rest; it is not released yet. Relatedly, ``is_clean_cycle`` is a summary-level
+flag about capacity and is not safe for voltage or time-series work -- see
+:func:`load_cycles`.
+
 The data is CC BY 4.0 (see ``NOTICE.md`` for the attribution); this code is MIT.
 Decisions D0-D5 behind the cleaning are in ``exploration/REPORT.md`` section 6 and are
 not re-litigated here. ``USAGE.md`` has worked examples, including Google Colab and
@@ -56,7 +63,7 @@ from .loaders import (
 )
 from .splits import Split, cv_splits, split_labels
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "__version__",

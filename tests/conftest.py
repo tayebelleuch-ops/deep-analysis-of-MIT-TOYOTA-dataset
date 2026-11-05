@@ -2,7 +2,9 @@
 
 Every test runs with the download cache pointed at a temporary directory and
 ``MATR_CLEAN_DATA_DIR`` unset, so no test can read the developer's real cache or
-reach the network by accident.
+reach the network by accident. Retry backoff is stubbed out too, so a test that
+exercises the retry path proves the waits happen without spending them; a test that
+cares about their length patches ``_locate._sleep`` with its own recorder.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ def isolated_state(tmp_path, monkeypatch):
     monkeypatch.setattr(_locate, "_SESSION_DIR", None, raising=False)
     monkeypatch.setattr(_locate, "_VERIFIED", set(), raising=False)
     monkeypatch.setattr(loaders, "_CACHE", {}, raising=False)
+    monkeypatch.setattr(_locate, "_sleep", lambda seconds: None, raising=False)
     yield
 
 

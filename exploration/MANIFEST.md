@@ -9,11 +9,23 @@ and all 11 figures byte-for-byte.
 **Tagged `v1.0`** at commit `4e54679` (annotated tag; `refs/tags/v1.0^{}` resolves to
 that commit). This manifest is the provenance record for that tag.
 
-The three generated output files are **unchanged since `v1.0`** — the only commit after
-it moved the licence-scope notes from `LICENSE` into `NOTICE.md` and updated this
-paragraph. The SHA-256 values recorded below therefore still apply to the files as
-they stand, and `git diff v1.0 -- exploration/analysis_set_cells.csv
+The three generated output files are **unchanged since `v1.0`**. Everything that has
+landed on `main` after the tag is listed below, and none of it touches the data:
+
+| commit | change |
+|---|---|
+| `1a4657a` | **The licence split.** `LICENSE` reduced to the unmodified MIT text so GitHub detects it; the scope notes it carried moved verbatim into `NOTICE.md`, linked from `README.md`. No term changed. The tag record above replaced this manifest's earlier "not yet tagged / candidate for a v1 tag" paragraph. |
+| `4bc91d1`, merged as `09f1964` | **The loader.** `matr_clean`, a pandas-and-numpy-only reader for the three CSVs, with `USAGE.md`, an example and 76 tests. It reads the files and never writes them. Released as `loader-v0.1.0`. |
+| `dff9ee8` | **Wording fixes, no numbers changed.** `REPORT.md` §7 and `comparison_external_repos.md` §4.2 each now name the predicate behind their trajectory count — 130 is `use_for_trajectory`, 123 is `use_for_trajectory & has_eol_label` — which had been quoted as one count in two documents. |
+| this release (version 0.1.1, not yet tagged) | **Loader only.** A download retry for the cache-population step (4 attempts, exponential backoff with jitter, retried only on timeouts, connection resets and HTTP 5xx; never on a hash mismatch), plus `USAGE.md` and docstring corrections: what the CSVs omit, the scope of `is_clean_cycle`, and why `load_labels()` returns 102 where this document and `REPORT.md` say 128. |
+
+The SHA-256 values recorded below therefore still apply to the files as they stand.
+Verified two ways: `sha256sum` on the three files reproduces the values in the table,
+and `git diff v1.0 -- exploration/analysis_set_cells.csv
 exploration/analysis_set_cycles.csv exploration/cell_inventory.csv` is empty.
+
+No hash constant, URL, decision (D0–D5), fold assignment or data file is changed by
+any of the above. The `v1.0` tag still resolves to `4e54679`.
 
 ## Raw inputs (read-only, never modified)
 
