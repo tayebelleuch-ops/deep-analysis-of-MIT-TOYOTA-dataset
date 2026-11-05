@@ -31,6 +31,10 @@ test = ["pytest"]
 # tested, not assumed. v0.2.0 itself never imports h5py -- the per-cycle index it
 # reads is a CSV -- so installing without this extra is the normal case today.
 series = ["h5py>=3.0"]
+# For running the exploration/ scripts and the standalone checks in that folder.
+# matplotlib is needed only there: exploration/test_cell_addressing.py imports
+# SAMPLE from plots_7_10.py, which imports pyplot. matr_clean itself never does.
+dev = ["matplotlib", "pytest"]
 
 [project.urls]
 Homepage = "https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset"

@@ -153,7 +153,7 @@ Extraction cost: ~18 min wall clock, peak RSS one cell at a time (~184 MiB worst
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-.venv/bin/python -I exploration/test_cell_addressing.py     # v1.0: struct position != channel
+.venv/bin/python exploration/test_cell_addressing.py        # v1.0: struct position != channel
 rm -f exploration/extract_out/within_cycle_* exploration/extract_out/SHA256SUMS.txt
 .venv/bin/python -I exploration/extract_within_cycle.py
 .venv/bin/python -I exploration/extract_flags.py
