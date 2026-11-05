@@ -228,7 +228,7 @@ labels.attrs["filters"]["excluded"]
 No clone, no raw data, nothing to upload:
 
 ```python
-!pip install -q "git+https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset.git@loader-v0.1.0"
+!pip install -q "git+https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset.git@loader-v0.1.1"
 ```
 
 ```python
@@ -256,7 +256,7 @@ mc.set_data_dir("/content/matr_data")
 
 or set `MATR_CLEAN_DATA_DIR=/content/matr_data` before importing.
 
-> `loader-v0.1.0` is the tag for this loader release. Use the **loader** tag here, not
+> `loader-v0.1.1` is the tag for this loader release. Use the **loader** tag here, not
 > `v1.0`: `v1.0` tags the audit and its data files and does not contain this package.
 > The three CSVs are still fetched from URLs pinned to `v1.0`, which has not moved.
 
