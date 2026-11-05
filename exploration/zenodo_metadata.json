@@ -1,0 +1,64 @@
+{
+  "_comment": [
+    "DRAFT -- nothing has been uploaded. Zenodo legacy deposit API format",
+    "(POST /api/deposit/depositions).",
+    "OPTIONAL fields may be left as an empty string; zenodo_publish.py drops any",
+    "empty field before sending rather than refusing to deposit:",
+    "  publication_date         -- Zenodo defaults it to the deposit date",
+    "  creators[].affiliation   -- omitted from the record if empty",
+    "REQUIRED and checked before any write: title, upload_type, access_right,",
+    "license, and a name for every creator.",
+    "A record cannot be edited or deleted once published on Zenodo, only superseded,",
+    "so run against sandbox.zenodo.org first (the script's default)."
+  ],
+  "metadata": {
+    "upload_type": "dataset",
+    "title": "Within-cycle series of the MIT-Stanford-TRI fast-charging battery dataset, extracted and audited (v1.1)",
+    "version": "1.1.0",
+    "language": "eng",
+    "publication_date": "",
+    "access_right": "open",
+    "license": "cc-by-4.0",
+    "creators": [
+      {
+        "name": "Elleuch, Tayeb",
+        "affiliation": "",
+        "orcid": "0009-0007-9435-0587"
+      }
+    ],
+    "keywords": [
+      "lithium-ion batteries",
+      "LFP/graphite",
+      "A123 APR18650M1A",
+      "fast charging",
+      "cycle life prediction",
+      "state of health",
+      "data quality",
+      "derived dataset",
+      "MATR",
+      "Severson 2019"
+    ],
+    "related_identifiers": [
+      {
+        "identifier": "10.1038/s41560-019-0356-8",
+        "relation": "isDerivedFrom",
+        "resource_type": "publication-article",
+        "scheme": "doi"
+      },
+      {
+        "identifier": "https://data.matr.io/1/projects/5c48dd2bc625d700019f3204",
+        "relation": "isDerivedFrom",
+        "resource_type": "dataset",
+        "scheme": "url"
+      },
+      {
+        "identifier": "https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset",
+        "relation": "isSupplementTo",
+        "resource_type": "software",
+        "scheme": "url"
+      }
+    ],
+    "notes": "These files are an adaptation of CC BY 4.0 data distributed by Toyota Research Institute and carry the dataset's terms, not the MIT licence of the code that produced them. The authors of the original dataset and paper are listed as related identifiers, NOT as creators of this record: listing them would imply an endorsement that CC BY 4.0 forbids.",
+    "description": "<p><strong>What this is.</strong> The within-cycle measurement series of the 124-cell MIT&ndash;Stanford&ndash;TRI fast-charging dataset (Severson, Attia et al., <em>Nature Energy</em> 2019), extracted from the three raw MATLAB v7.3 batch structs into HDF5, with a per-cycle index and a data-quality audit. The widely used pickled form of this dataset omits these series; this record supplies them in a form that can be joined cell-by-cell and cycle-by-cycle.</p>\n\n<p><strong>Coverage.</strong> All <strong>114,738</strong> struct cycles of all 140 struct rows (135 physical cells), comprising <strong>1,015,426,428</strong> float values. Nothing is dropped: the 1,179 cycles beyond each cell's 80% SOH crossing and the 46 zero-filled placeholder cycles are retained and flagged rather than removed.</p>\n\n<h4>Files</h4>\n<ul>\n<li><code>within_cycle_2017-05-12.h5</code>, <code>within_cycle_2017-06-30.h5</code>, <code>within_cycle_2018-04-12.h5</code> &mdash; the nine within-cycle series (I, V, T, Qc, Qd, t, Qdlin, Tdlin, discharge_dQdV) plus the Vdlin voltage grid. Ragged series are stored CSR-style (a concatenated array plus offsets); the three interpolated series are (n_cycles &times; 1000) matrices.</li>\n<li><code>within_cycle_index.csv</code> &mdash; one row per cycle: keys, provenance, nine series-validity flags, the six summary series the analysis set omits, and ~40 per-cycle diagnostics.</li>\n<li><code>within_cycle_cells.csv</code> &mdash; per-cell metadata.</li>\n<li><code>EXTRACTION.md</code>, <code>LICENSE.txt</code>, <code>SHA256SUMS.txt</code>.</li>\n</ul>\n\n<h4>Keys</h4>\n<p>Every row is keyed <code>(cell_uid, cycle)</code>, where <code>cell_uid</code> is the upper-cased barcode and <code>cycle</code> follows the analysis set's numbering (segments of cells continued across batches are concatenated). <strong>Cells are resolved through the decoded <code>channel_id</code> and barcode, never by struct row position</strong> &mdash; position does not equal channel for 113 of the 140 rows, which is a documented trap in this dataset. The struct position each channel resolved to is recorded as provenance.</p>\n\n<h4>Precision</h4>\n<p><code>t</code> is float64; the other eight series are float32, costing at most 6.0&times;10<sup>-8</sup> relative error &mdash; three to five orders of magnitude below every physical tolerance used in the audit. All diagnostics were computed from the float64 source before narrowing.</p>\n\n<h4>What the audit found</h4>\n<p>Of the 113,559 cycles in the published analysis set, <strong>171 across 54 cells pass every summary-level quality check yet fail a check on their own series</strong>. Notably:</p>\n<ul>\n<li>The interpolated voltage-domain fields go physically impossible on <strong>48 cycles across 32 cells</strong>, reaching <strong>+1,431 Ah and &minus;4,030 Ah on a 1.1 Ah cell</strong>; 34 of those cycles are marked clean by summary-level detectors. Any &Delta;Q(V) feature computed without filtering them mixes in values three orders of magnitude out of range.</li>\n<li>Two multi-cell events in the 2017-05-12 batch, documented nowhere, with ordinary charge times and no zero-resistance reading &mdash; invisible to detectors that work on summary fields alone.</li>\n<li>One cell's first 53 cycles splice together fragments recorded 36&ndash;48 h apart.</li>\n<li><strong>No C/10 cycle exists in any of the 114,692 measured cycles</strong> (minimum peak current 4.0006 C), contradicting the dataset documentation at full coverage.</li>\n</ul>\n<p>No cycle-life label is affected: all 128 label-defining cycles pass every series check, and the nearest disputed cycle is 33 cycles from any crossing.</p>\n\n<h4>Reproducibility</h4>\n<p>Extraction is deterministic and byte-reproducible: deleting every output and re-running reproduces all files byte-for-byte. SHA-256 of each file is in <code>SHA256SUMS.txt</code> and in the repository's <code>MANIFEST_v1.1.md</code>. The raw <code>.mat</code> files were opened read-only and are not redistributed here; download them from the original dataset.</p>\n\n<h4>Licence</h4>\n<p>CC BY 4.0, as an adaptation of CC BY 4.0 data. See <code>LICENSE.txt</code> for the attribution and the full statement of modifications.</p>"
+  }
+}

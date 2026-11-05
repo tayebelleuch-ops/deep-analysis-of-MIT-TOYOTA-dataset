@@ -1,0 +1,5 @@
+v1.0_flag,n_flagged,of_which_series_invalid,pct_of_flagged
+is_artifact_cycle,83,21,25.301204819277107
+is_restart_cycle,13,13,100.0
+is_junction_cycle,25,0,0.0
+NOT is_measured_cycle,46,46,100.0

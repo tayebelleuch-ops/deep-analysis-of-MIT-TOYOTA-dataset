@@ -1,0 +1,10 @@
+check,n_fail,missed_by_v1_0,already_flagged_by_v1_0,cells
+series_present,46,0,46,46
+series_time_monotone,0,0,0,0
+series_time_contiguous,135,105,30,69
+series_duration_plausible,131,102,29,68
+series_length_plausible,53,49,4,2
+series_voltage_in_range,15,13,2,2
+series_current_in_range,3,3,0,3
+series_grid_in_range,48,34,14,32
+series_no_nan,0,0,0,0

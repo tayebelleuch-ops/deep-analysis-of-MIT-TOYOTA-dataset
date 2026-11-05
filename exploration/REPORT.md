@@ -294,8 +294,8 @@ the modelling step to filter, with `is_clean_cycle` as the conjunction of all fo
 ## 7. The resulting analysis set
 
 ```
-analysis_set_cells.csv    135 cells × 29 columns
-analysis_set_cycles.csv   113,559 cycles × 12 columns, truncated at the 80% SOH crossing
+analysis_set_cells.csv    135 cells × 31 columns
+analysis_set_cycles.csv   113,559 cycles × 13 columns, truncated at the 80% SOH crossing
 ```
 
 | | cells |

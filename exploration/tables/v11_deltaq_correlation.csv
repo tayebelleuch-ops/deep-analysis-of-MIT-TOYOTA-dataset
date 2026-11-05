@@ -1,0 +1,9 @@
+basis,n_cells,rho,vs_paper_panel_-0.92,vs_paper_caption_-0.93
+all labelled cells with both cycles,128,-0.919964,3.57424e-05,0.0100357
+minus exclude_from_deltaq_features,127,-0.925381,-0.00538135,0.00461865
+minus that cell AND the shortest-lived cell (the paper's Fig. 2c basis),126,-0.923273,-0.0032727,0.0067273
+in_paper_124 only,124,-0.927445,-0.00744476,0.00255524
+in_paper_124 minus its shortest-lived (EL150800460605),123,-0.925367,-0.00536676,0.00463324
+batch 2017-05-12,41,-0.944986,-0.0249865,-0.0149865
+batch 2017-06-30,43,-0.81519,0.10481,0.11481
+batch 2018-04-12,43,-0.784485,0.135515,0.145515
