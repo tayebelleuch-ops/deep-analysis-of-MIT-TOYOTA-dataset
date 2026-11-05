@@ -262,6 +262,11 @@ def load_cycles(
         Outside the held-out cells it removes @@n_cycles_flagged_excl_test@@ rows.
         ``clean=False`` returns every row with the flags intact -- nothing is masked,
         imputed or smoothed.
+
+        All four flags are judgements about the cycle's ``QDischarge`` value and its
+        neighbours, so ``is_clean_cycle`` is a **summary-level** flag: it is not
+        evidence that a cycle's voltage, current, temperature or time series is
+        usable. See the note below.
     include_test:
         ``False`` (the default) drops the @@n_test_cycles@@ cycles of the
         @@n_test_cells@@ cells with ``fold == -1``, leaving @@n_cycles_excl_test@@
@@ -277,9 +282,23 @@ def load_cycles(
     ``QD_Ah``, ``soh``, ``cycles_to_eol``, and the five flags. ``soh`` is against the
     1.1 Ah nominal capacity (decision D0), so 80% SOH is 0.88 Ah.
 
-    This table carries the per-cycle *summary* only. Voltage-domain quantities
-    (``Qdlin``, ``dQdV``, delta-Q) are not in it and are not available from this
-    loader; they live in the raw ``.mat`` files, which teammates do not need.
+    This table carries the per-cycle *summary* only, and of the struct's own per-cycle
+    measurements exactly one: ``QDischarge``, as ``QD_Ah``. Not here, in any of the
+    three CSVs: ``IR``, ``QCharge``, ``Tavg``, ``Tmax``, ``Tmin``, ``chargetime``, the
+    nine within-cycle series (``t``, ``I``, ``V``, ``Qc``, ``Qd``, ``T``, ``Qdlin``,
+    ``Tdlin``, ``discharge_dQdV``) and the ``Vdlin`` voltage grid. So voltage-domain
+    quantities (``Qdlin``, ``dQdV``, delta-Q) cannot be computed from this loader; they
+    live in the raw ``.mat`` files. A later release will read them -- the within-cycle
+    extraction is in progress and **not released**.
+
+    ``is_clean_cycle`` is **summary-level and nothing more.** Its four components all
+    judge ``QDischarge`` and its neighbours -- an 11-cycle rolling median
+    (``is_artifact_cycle``), ``chargetime`` (``is_restart_cycle``), distance to a
+    continuation seam (``is_junction_cycle``). None looks inside a cycle, so a clean
+    cycle can still carry a broken voltage, current, temperature or time trace. **Do
+    not use it to select cycles for voltage-domain or time-series work.** The v1.1
+    extraction adds ``is_series_valid`` for that, computed from each cycle's own series;
+    it is not released yet and ``is_clean_cycle`` does not stand in for it.
 
     ``df.attrs["filters"]`` records what was applied.
     """
@@ -448,6 +467,17 @@ def load_labels(include_test: bool = False, data_dir: Optional[str] = None):
     valid but no crossing was observed (decision D4). The @@n_test_cells@@ held-out
     cells are dropped unless ``include_test=True``, leaving @@n_labelled_excl_test@@
     rows.
+
+    That is why this returns @@n_labelled_excl_test@@ cells where
+    ``exploration/REPORT.md`` says @@n_labelled@@: the report describes the data as
+    published, this applies the modelling default on top of it. Two subtractions, not
+    one -- @@n_cells@@ cells, minus @@n_unlabelled@@ censored, is @@n_labelled@@ labelled;
+    minus the held-out cells that carry a label leaves @@n_labelled_excl_test@@. Note
+    that :func:`load_cells` returns all @@n_cells@@ by default and :func:`load_cycles`
+    excludes the held-out cells, so an inner join of two default frames keeps only the
+    cells both sides have: joining this frame to ``load_cells()`` drops the held-out
+    cells silently rather than raising. ``df.attrs["filters"]["excluded"]`` on each
+    frame names what went.
 
     Parameters
     ----------

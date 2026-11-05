@@ -169,6 +169,60 @@ cells.attrs["filters"]
 
 ---
 
+## Why the loaders return different numbers of cells
+
+Three different counts are all correct, because each answers a different question.
+`REPORT.md` and `MANIFEST.md` describe **the data as published**; the loaders apply
+**the modelling defaults** on top of it.
+
+| call | cells | what it is |
+|---|---|---|
+| `load_cells()` | **135** | the inventory: every physical cell in the analysis set |
+| `load_labels()` | **102** | labelled cells you may train on |
+| `load_labels(include_test=True)` | **128** | every labelled cell — the number in `REPORT.md` |
+| `load_cycles()` | 90,314 rows over **108** cells | clean cycles, held-out cells dropped |
+
+The 135 → 128 → 102 steps are two separate subtractions:
+
+```
+135  cells in the analysis set                    load_cells()
+ −7  censored: stopped above 0.88 Ah, so no label observed (decision D4)
+=128  labelled cells                              load_labels(include_test=True)
+−26  of the 27 held-out test cells (fold == −1); the 27th is one of the censored
+=102  labelled, trainable cells                   load_labels()
+```
+
+So **102 is not a disagreement with `REPORT.md`'s 128** — it is 128 minus the
+held-out test cells. The audit documents the dataset; the loader defends a model.
+`load_cells()` is the one loader that keeps all 135: it is one row per cell with no
+cycles to leak, so there is nothing to protect.
+
+**An inner join silently drops the test cells.** Because the defaults differ per
+loader, joining two default frames gives you the intersection, not an error:
+
+```python
+cells  = mc.load_cells()                 # 135 cells (test cells included)
+labels = mc.load_labels()                # 102 cells (test cells excluded)
+cycles = mc.load_cycles()                # 108 cells (test cells excluded)
+
+len(cells.merge(cycles, on="cell_uid")["cell_uid"].unique())    # 108, not 135
+len(labels.merge(cycles, on="cell_uid")["cell_uid"].unique())   # 102, not 135
+```
+
+That is usually what you want — and it is why `load_cells()` returning 135 is safe.
+But it means a `cells`-based count printed next to a joined frame will not match. If
+you want the counts to line up, be explicit: pass `include_test=False` to
+`load_cells()` (108), or `include_test=True` to both sides (135 / 128), and never
+infer the exclusion from a row count alone. Every frame records what was applied:
+
+```python
+labels.attrs["filters"]["excluded"]
+# ['cells with has_eol_label == False (censored, decision D4): 7 cells',
+#  'held-out test cells (fold == -1): 26 cells']
+```
+
+---
+
 ## Colab
 
 No clone, no raw data, nothing to upload:
@@ -204,6 +258,7 @@ or set `MATR_CLEAN_DATA_DIR=/content/matr_data` before importing.
 
 > `loader-v0.1.0` is the tag for this loader release. Use the **loader** tag here, not
 > `v1.0`: `v1.0` tags the audit and its data files and does not contain this package.
+> The three CSVs are still fetched from URLs pinned to `v1.0`, which has not moved.
 
 ---
 
@@ -252,21 +307,61 @@ each file's SHA-256 and will raise rather than load a file that has been edited.
 
 ## What this does not include
 
-**No voltage-domain features.** `Qdlin`, `dQdV` and the ΔQ(V) curves the original paper
-is built on are *not* available from this loader. `analysis_set_cycles.csv` holds the
-per-cycle summary only — one row per cycle with `QD_Ah`, `soh` and `cycles_to_eol`, plus
-the four quality flags. The within-cycle arrays live in the raw `.mat` files.
+**One measurement per cycle.** Of everything the source structs record per cycle, the
+three CSVs carry exactly **one measured quantity: `QDischarge`**, as `QD_Ah` — plus
+`cycle` (the index), `soh` (`QD_Ah` / 1.1) and `cycles_to_eol`, both derived from it, and
+the quality flags. `analysis_set_cycles.csv` is 113,559 rows × 13 columns:
+
+```
+cell_uid  batch_date  channel  cycle  segment  QD_Ah  soh  cycles_to_eol
+is_measured_cycle  is_artifact_cycle  is_restart_cycle  is_junction_cycle  is_clean_cycle
+```
+
+**These struct fields are *not* in any of the three CSVs:**
+
+| | field | what it is |
+|---|---|---|
+| summary, per cycle | `IR` | internal resistance, Ω |
+| | `QCharge` | charge capacity, Ah |
+| | `Tavg`, `Tmax`, `Tmin` | cell temperature, °C |
+| | `chargetime` | minutes to charge |
+| within-cycle series | `t`, `I`, `V` | time, current (as a C-rate), voltage |
+| | `Qc`, `Qd` | charge / discharge throughput, Ah |
+| | `T` | temperature trace, °C |
+| | `Qdlin`, `Tdlin`, `discharge_dQdV` | the three 1000-point voltage-grid series |
+| the grid itself | `Vdlin` | 1000 points, 3.5 → 2.0 V, identical for every cell |
+
+So the ΔQ(V) curves the original paper is built on cannot be computed from this loader,
+and neither can anything needing temperature, resistance, charge time or a within-cycle
+trace. `chargetime` is a case worth naming: it was *used* to derive `is_restart_cycle`,
+but the column itself is not carried.
+
+**A later release will read them.** A within-cycle extraction keyed to this same analysis
+set is in progress, and will add the six summary series, the nine within-cycle series and
+the voltage grid. It is **not released**: nothing in this package reads them yet, and
+until it ships the raw `.mat` files are the only source.
 
 **The raw `.mat` files are not used and not needed.** This loader never opens them, and
-nothing here requires `h5py`. If you do need voltage-domain features, that is a separate
-job against the raw files — `exploration/matr.py` in this repository reads them lazily —
-and it starts by downloading ~8 GB from [data.matr.io](https://data.matr.io/1/projects/5c48dd2bc625d700019f3204).
+nothing here requires `h5py`. If you do need voltage-domain features before that release,
+that is a separate job against the raw files — `exploration/matr.py` in this repository
+reads them lazily — and it starts by downloading ~8 GB from [data.matr.io](https://data.matr.io/1/projects/5c48dd2bc625d700019f3204).
 
 **Nothing is masked, imputed, interpolated or smoothed.** Bad cycles are flagged in
 place so each reason stays visible: `is_measured_cycle`, `is_artifact_cycle`,
 `is_restart_cycle`, `is_junction_cycle`, and `is_clean_cycle` as the conjunction of all
 four. `clean=True` filters on the conjunction; `clean=False` returns every row with the
 flags intact.
+
+**`is_clean_cycle` is a summary-level flag, and only that.** All four flags it combines
+are judgements about a cycle's **`QDischarge` value and its neighbours** —
+`is_artifact_cycle` is a departure from an 11-cycle rolling median, `is_restart_cycle`
+reads `chargetime`, `is_junction_cycle` is proximity to a continuation seam. None of them
+looks inside a cycle. So `is_clean_cycle == True` says the cycle's *capacity* is sound; it
+is **not** a warrant that the cycle's voltage, current, temperature or time series are
+usable, and it must not be used as one in voltage-domain or time-series work. A cycle can
+be clean here and still carry a broken trace. The v1.1 extraction adds a separate
+`is_series_valid` for exactly that question, computed from each cycle's own series with no
+rolling window — it is not released yet, and `is_clean_cycle` is not a substitute for it.
 
 **The batches are not exchangeable.** Target medians are 841 / 481 / 1004 cycles, partly
 by design and partly protocol (`REPORT.md` §8). Keep `batch_date` in any model, and do

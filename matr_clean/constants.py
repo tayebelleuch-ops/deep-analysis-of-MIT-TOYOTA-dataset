@@ -68,6 +68,13 @@ SOH_THRESHOLD_AH = 0.88
 
 #: The four orthogonal per-cycle quality flags. ``is_clean_cycle`` is their
 #: conjunction: measured, and not an artifact, restart or junction cycle.
+#:
+#: All four judge a cycle's ``QDischarge`` value against its neighbours, so
+#: ``is_clean_cycle`` is a **summary-level** flag. It is not a warrant that the
+#: cycle's voltage, current, temperature or time series is usable, and must not be
+#: used to select cycles for voltage-domain or time-series work. The v1.1
+#: within-cycle extraction adds ``is_series_valid`` for that question; it is not
+#: released.
 MEASURED_FLAG = "is_measured_cycle"
 REJECT_FLAGS = ("is_artifact_cycle", "is_restart_cycle", "is_junction_cycle")
 CLEAN_FLAG = "is_clean_cycle"

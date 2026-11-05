@@ -13,16 +13,30 @@ Every source is verified against :data:`matr_clean.constants.SHA256`, once per
 process per directory. Nothing is ever written outside the cache: a directory the
 user named (steps 1-3) and the repository's own ``exploration/`` folder are read-only
 as far as this package is concerned.
+
+A download is retried up to :data:`MAX_ATTEMPTS` times with exponential backoff and
+jitter, but only for the reasons that a second attempt can actually fix -- a read or
+connect timeout, a connection reset by the peer, an HTTP 5xx from the CDN. Nothing
+else is retried: a 404, a redirect loop, an unreachable network and above all a
+**hash mismatch** fail on the first attempt, because repeating them only wastes the
+user's time. A file whose SHA-256 is wrong is deleted and the error raised. Downloads
+land on a temporary ``.part`` file in the cache and are renamed into place only once
+complete, so no attempt -- successful, failed or interrupted -- can leave a partial
+file behind for a later run to mistake for the real thing.
 """
 
 from __future__ import annotations
 
 import difflib
 import hashlib
+import http.client
 import os
+import random
 import re
 import shutil
+import socket
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -38,6 +52,22 @@ __all__ = [
     "get_data_dir",
     "resolve_data_dir",
 ]
+
+#: Attempts per file, including the first. Four attempts span about 1 + 2 + 4
+#: seconds of waiting at most, which rides out a CDN hiccup without making an
+#: offline user wait.
+MAX_ATTEMPTS = 4
+
+#: Per-attempt socket timeout, in seconds. urllib applies it to the connect and to
+#: every read, so this is the longest a single stalled read can hang. Deliberately
+#: well above 60: the cycles file is 11 MB and a slow conference-wifi connection
+#: should finish, not be abandoned.
+TIMEOUT_SECONDS = 120.0
+
+#: Backoff: attempt *n* waits between 50% and 100% of
+#: ``BACKOFF_BASE_SECONDS * 2 ** (n - 1)``, capped at BACKOFF_CAP_SECONDS.
+BACKOFF_BASE_SECONDS = 1.0
+BACKOFF_CAP_SECONDS = 30.0
 
 
 class DataDirError(Exception):
@@ -57,6 +87,9 @@ _SESSION_DIR = None  # type: Optional[Path]
 
 # Directories whose three files have already been hashed in this process.
 _VERIFIED = set()  # type: set
+
+# Indirection so a test can observe the waits without spending them.
+_sleep = time.sleep
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +160,46 @@ def _describe_missing(directory: Path, missing: List[str], source: str) -> str:
     return "\n".join(lines)
 
 
+def _verify_one(path: Path, name: str, delete_on_mismatch: bool = False) -> None:
+    """Hash one file and raise :class:`IntegrityError` if it is not the right one.
+
+    A mismatch is never a transient failure, so a caller that is retrying must not
+    retry this: the bytes at the pinned URL do not change, and a file that hashes
+    wrong twice is wrong for a reason retrying cannot reach.
+    """
+    actual = _sha256(path)
+    expected = C.SHA256[name]
+    if actual == expected:
+        return
+
+    size = path.stat().st_size if path.exists() else 0
+    if delete_on_mismatch:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    raise IntegrityError(
+        "\n".join(
+            [
+                "{name} does not match the file recorded for tag {tag}.".format(
+                    name=name, tag=C.DATA_TAG
+                ),
+                "  path:     {0}".format(path),
+                "  expected: {0}".format(expected),
+                "  actual:   {0}".format(actual),
+                "  Expected size: {0} bytes; this file: {1} bytes.".format(
+                    C.SIZE_BYTES[name], size
+                ),
+                "  The loader will not fall back to another source. Replace the"
+                " file with the one published at {0}".format(C.url_for(name)),
+                "  or point the loader elsewhere with set_data_dir() / {0}.".format(
+                    C.DATA_DIR_ENV
+                ),
+            ]
+        )
+    )
+
+
 def _verify(directory: Path, source: str, delete_on_mismatch: bool = False) -> None:
     """Hash the three files in *directory* and compare against the constants.
 
@@ -141,36 +214,7 @@ def _verify(directory: Path, source: str, delete_on_mismatch: bool = False) -> N
         raise DataDirError(_describe_missing(directory, missing, source))
 
     for name in C.REQUIRED_FILES:
-        path = directory / name
-        actual = _sha256(path)
-        expected = C.SHA256[name]
-        if actual != expected:
-            if delete_on_mismatch:
-                try:
-                    path.unlink()
-                except OSError:
-                    pass
-            raise IntegrityError(
-                "\n".join(
-                    [
-                        "{name} does not match the file recorded for tag {tag}.".format(
-                            name=name, tag=C.DATA_TAG
-                        ),
-                        "  path:     {0}".format(path),
-                        "  expected: {0}".format(expected),
-                        "  actual:   {0}".format(actual),
-                        "  Expected size: {0} bytes; this file: {1} bytes.".format(
-                            C.SIZE_BYTES[name], path.stat().st_size
-                            if path.exists() else 0
-                        ),
-                        "  The loader will not fall back to another source. Replace the"
-                        " file with the one published at {0}".format(C.url_for(name)),
-                        "  or point the loader elsewhere with set_data_dir() / {0}.".format(
-                            C.DATA_DIR_ENV
-                        ),
-                    ]
-                )
-            )
+        _verify_one(directory / name, name, delete_on_mismatch=delete_on_mismatch)
 
     _VERIFIED.add(key)
 
@@ -208,25 +252,129 @@ def _repo_exploration_dirs() -> List[Path]:
 # step 5: the download cache
 # ---------------------------------------------------------------------------
 
-def _download_one(name: str, target_dir: Path) -> Path:
-    url = C.url_for(name)
-    target = target_dir / name
+def _unlink_quietly(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+#: Reasons worth another attempt, when the exception carries a string rather than a
+#: nested exception (some proxies and older urllib paths report it that way).
+_RETRYABLE_TEXT = re.compile(
+    r"timed out|timeout|connection reset|reset by peer|connection aborted"
+    r"|broken pipe|temporarily unavailable|incomplete read",
+    re.IGNORECASE,
+)
+
+
+def _retryable_reason(exc: BaseException, _depth: int = 0) -> Optional[str]:
+    """Return a short label if *exc* is worth retrying, else ``None``.
+
+    Only three things are: a timeout, a connection the peer dropped, and an HTTP 5xx.
+    Everything else -- 404, 403, a redirect loop, an unreachable network, a full disk
+    -- would fail the same way on the next attempt, and an offline user should see the
+    manual-download instructions at once rather than after four waits.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            code = int(exc.code)
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            return None
+        return "HTTP {0}".format(code) if 500 <= code <= 599 else None
+
+    # socket.timeout is TimeoutError from 3.10 on, a bare OSError before it.
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return "timeout"
+    if isinstance(exc, ConnectionResetError):
+        return "connection reset"
+    if isinstance(exc, ConnectionAbortedError):
+        return "connection aborted"
+    if isinstance(exc, (http.client.IncompleteRead, http.client.BadStatusLine)):
+        return "truncated response"
+
+    if isinstance(exc, urllib.error.URLError) and _depth < 3:
+        reason = exc.reason
+        if isinstance(reason, BaseException):
+            return _retryable_reason(reason, _depth + 1)
+        if isinstance(reason, str) and _RETRYABLE_TEXT.search(reason):
+            return reason.strip()
+        return None
+
+    if _depth < 3 and isinstance(exc.__cause__, BaseException):
+        return _retryable_reason(exc.__cause__, _depth + 1)
+    return None
+
+
+def _retry_delay(attempt: int) -> float:
+    """Seconds to wait after a failed *attempt* (1-based).
+
+    Exponential with equal jitter: half the window is fixed so the waits still grow,
+    half is random so a roomful of clones that failed together do not come back in
+    step. Capped, so a long MAX_ATTEMPTS could never wait minutes.
+    """
+    window = min(
+        BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), BACKOFF_CAP_SECONDS
+    )
+    return window * (0.5 + 0.5 * random.random())
+
+
+def _fetch_once(url: str, target: Path) -> None:
+    """One attempt: download *url* to *target*, atomically or not at all.
+
+    The bytes go to a ``.part`` temporary file in the same directory and are renamed
+    over *target* only after the response is fully read, so a failed or interrupted
+    attempt leaves nothing behind that looks like a finished file.
+    """
     handle = tempfile.NamedTemporaryFile(
-        dir=str(target_dir), prefix=".{0}.".format(name), suffix=".part", delete=False
+        dir=str(target.parent),
+        prefix=".{0}.".format(target.name),
+        suffix=".part",
+        delete=False,
     )
     tmp_path = Path(handle.name)
     try:
         with handle:
-            with urllib.request.urlopen(url, timeout=60) as response:  # noqa: S310
+            with urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
                 shutil.copyfileobj(response, handle)
-    except Exception:
-        try:
-            tmp_path.unlink()
-        except OSError:
-            pass
+        tmp_path.replace(target)
+    except BaseException:
+        _unlink_quietly(tmp_path)
         raise
-    tmp_path.replace(target)
-    return target
+
+
+def _download_one(name: str, target_dir: Path) -> Path:
+    """Download one required file into *target_dir* and verify it.
+
+    Retries what a second attempt can fix, up to :data:`MAX_ATTEMPTS` times. The
+    downloaded file is hashed immediately: a mismatch deletes it and raises
+    :class:`IntegrityError` without a retry, and without downloading the rest.
+    """
+    url = C.url_for(name)
+    target = target_dir / name
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            _fetch_once(url, target)
+        except Exception as exc:  # classified, then re-raised or retried
+            label = _retryable_reason(exc)
+            if label is None:
+                raise DownloadError(_offline_message("{0}: {1}".format(name, exc)))
+            if attempt == MAX_ATTEMPTS:
+                raise DownloadError(
+                    _offline_message(
+                        "{0}: {1} attempts failed, last {2} ({3})".format(
+                            name, MAX_ATTEMPTS, label, exc
+                        )
+                    )
+                )
+            _sleep(_retry_delay(attempt))
+            continue
+        # Downloaded cleanly. A wrong hash is final, so this sits outside the retry.
+        _verify_one(target, name, delete_on_mismatch=True)
+        return target
+
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _offline_message(reason: str) -> str:
@@ -268,6 +416,8 @@ def _populate_cache() -> Path:
         try:
             _download_one(name, cache)
         except (urllib.error.URLError, OSError, ValueError) as exc:
+            # _download_one raises DownloadError itself for anything it saw; this
+            # catches what it could not, e.g. a full disk during the rename.
             raise DownloadError(
                 _offline_message("{0}: {1}".format(name, exc))
             )
