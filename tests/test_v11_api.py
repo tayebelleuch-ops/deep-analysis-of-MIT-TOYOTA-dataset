@@ -150,4 +150,14 @@ def test_public_api_is_exported():
                  "v11_counts"):
         assert name in mc.__all__
         assert callable(getattr(mc, name))
-    assert mc.__version__ == "0.2.0"
+    # pinned to pyproject rather than to a literal, so a version bump does not
+    # need this file edited -- but the two must never drift apart
+    import re
+    from pathlib import Path
+
+    root = Path(mc.__file__).resolve().parent.parent
+    declared = re.search(
+        r'^version = "([^"]+)"', (root / "pyproject.toml").read_text(), re.M
+    )
+    assert declared is not None
+    assert mc.__version__ == declared.group(1)

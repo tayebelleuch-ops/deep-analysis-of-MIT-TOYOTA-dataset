@@ -35,21 +35,57 @@ __all__ = [
 _CACHE = {}  # type: Dict[str, Dict[str, Any]]
 
 
-def _read_csv_kwargs() -> Dict[str, Any]:
-    """Make float parsing identical on every supported pandas.
+#: The pandas release that both fixed the default CSV float parser and deprecated
+#: the argument that used to work around it. Below this, pass the argument; at or
+#: above it, do not -- see :func:`_read_csv_kwargs`.
+ROUND_TRIP_FIXED_IN = (3, 1)
 
-    pandas 2's default CSV parser can land one unit in the last place away from the
-    correctly rounded value of the decimal in the file: ``soh = 0.9750086363636363``
-    reads back as ``0.9750086363636364``. pandas 3 parses it correctly by default and
-    deprecates the argument that used to ask for that. Passing it only where it is
-    needed means a teammate on pandas 2 and a teammate on pandas 3 get bit-identical
-    float64 columns, with no deprecation warning on either.
+
+def _pandas_version() -> tuple:
+    """``pandas.__version__`` as a ``(major, minor)`` tuple of ints.
+
+    Tolerates suffixes like ``3.1.0rc0`` and ``2.2.3.dev0+g1234``. An unparsable
+    version is treated as older than the fix, which is the safe direction: passing
+    the argument to a pandas that does not want it warns, but *not* passing it to a
+    pandas that needs it silently corrupts the last bit of every float.
     """
-    try:
-        major = int(str(pd.__version__).split(".")[0])
-    except (ValueError, TypeError):  # pragma: no cover - unparsable version string
-        major = 2
-    if major >= 3:
+    import re
+
+    match = re.match(r"\s*(\d+)(?:\.(\d+))?", str(pd.__version__))
+    if not match:  # pragma: no cover - pandas with no leading digit
+        return (0, 0)
+    return (int(match.group(1)), int(match.group(2) or 0))
+
+
+def _read_csv_kwargs(version=None) -> Dict[str, Any]:
+    """Make float parsing bit-identical on every supported pandas.
+
+    The CSVs carry values that are already correctly rounded decimal
+    representations of the float64 they came from, and the loader must read them
+    back to the same bits. Three regimes, all measured rather than assumed:
+
+    ============  =====================  ==========================================
+    pandas        default CSV parser     ``float_precision="round_trip"``
+    ============  =====================  ==========================================
+    2.x           **one ulp off**        correct, no warning
+    3.0.x         **one ulp off**        correct, no warning
+    >= 3.1        correct                **deprecated** -- ``Pandas4Warning``
+    ============  =====================  ==========================================
+
+    ``soh = 0.9750086363636363`` reads back as ``0.9750086363636364`` on both
+    pandas 2.x and pandas 3.0.x; 3.1 fixed the parser and deprecated the argument in
+    the same release. So the argument is passed **below 3.1 and not at or above it**,
+    which is the only rule under which every supported version is both bit-exact and
+    warning-free.
+
+    An earlier version of this function gated on ``major >= 3``, on the belief that
+    pandas 3 had fixed the parser. pandas **3.0** had not: that gate left 3.0.x
+    reading one ulp off, which is the bug this replaces.
+
+    *version* overrides the detected version, for tests.
+    """
+    detected = _pandas_version() if version is None else version
+    if detected >= ROUND_TRIP_FIXED_IN:
         return {}
     return {"float_precision": "round_trip"}
 
@@ -62,7 +98,11 @@ def _read_csv(path):
 
 
 def _read_csv_with(path, **kwargs):
-    """``pd.read_csv`` with the float-parity keyword, plus anything the caller adds.
+    """``pd.read_csv`` with the float-parity keywords, plus anything the caller adds.
+
+    Every CSV this package reads goes through here, so :data:`_READ_KWARGS` applies
+    uniformly -- the v1.0 CSVs in :func:`_read` and the v1.1 index and cell table in
+    ``features.py``.
 
     ``features.py`` passes ``usecols=`` here so that the 72.8 MB v1.1 index is never
     materialised in full: only the 36 columns the loader exposes are read.
