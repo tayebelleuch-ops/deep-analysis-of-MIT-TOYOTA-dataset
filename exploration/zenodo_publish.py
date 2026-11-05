@@ -38,6 +38,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -47,6 +48,13 @@ LICENSE = HERE / "zenodo_LICENSE.txt"
 
 SANDBOX = "https://sandbox.zenodo.org"
 PRODUCTION = "https://zenodo.org"
+
+# Upload progress. The file is never read into memory: it is served out in
+# UPLOAD_CHUNK-sized pieces (see _ChunkedReader), so peak memory is one chunk
+# regardless of file size.
+UPLOAD_CHUNK = 1 << 20          # 1 MiB
+PROGRESS_EVERY_PCT = 5.0        # non-TTY: emit at least every this many percent
+PROGRESS_EVERY_S = 10.0         # non-TTY: ... or this many seconds, whichever first
 
 # Files that go into the record. EXTRACTION.md travels with the data so the record is
 # self-describing; the raw .mat files are NOT redistributed.
@@ -61,6 +69,194 @@ PAYLOAD = [
     (LICENSE, "LICENSE.txt"),
 ]
 PLACEHOLDER = re.compile(r"PLACEHOLDER|^0000-0000-0000-0000$")
+
+
+# ---------------------------------------------------------------------------
+# upload progress  (standard library only; nothing here touches the token)
+# ---------------------------------------------------------------------------
+
+def _human(n: float) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if abs(n) < 1024 or unit == "TiB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} TiB"
+
+
+def _hms(seconds: float) -> str:
+    if seconds != seconds or seconds in (float("inf"), float("-inf")) or seconds < 0:
+        return "--:--"
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h:d}:{m:02d}:{sec:02d}" if h else f"{m:d}:{sec:02d}"
+
+
+class _Progress:
+    """Upload progress, written to stderr.
+
+    On a TTY one line is redrawn with a carriage return; otherwise a plain line is
+    printed every PROGRESS_EVERY_PCT percent or PROGRESS_EVERY_S seconds, whichever
+    comes first, so a log file gets a readable trail rather than thousands of lines.
+
+    **Only file names and byte counts are ever written here.** The token is not passed
+    to this class and no request object reaches it.
+    """
+
+    def __init__(self, n_files: int, total_bytes: int, stream=None):
+        self.n_files = n_files
+        self.total_bytes = total_bytes
+        self.stream = stream if stream is not None else sys.stderr
+        self.tty = bool(getattr(self.stream, "isatty", lambda: False)())
+        self.files_done = 0
+        self.bytes_done = 0          # completed files only
+        self.name = ""
+        self.size = 0
+        self.sent = 0
+        self._t0 = 0.0
+        self._last_t = 0.0
+        self._last_pct = -PROGRESS_EVERY_PCT
+        self._open_line = False
+
+    # -- line handling ------------------------------------------------------
+    def _write(self, text: str, final: bool = False) -> None:
+        if self.tty:
+            self.stream.write("\r" + text.ljust(96))
+            if final:
+                self.stream.write("\n")
+                self._open_line = False
+            else:
+                self._open_line = True
+        else:
+            self.stream.write(text + "\n")
+        self.stream.flush()
+
+    def _break_line(self) -> None:
+        """End an in-progress TTY line before printing something else."""
+        if self.tty and self._open_line:
+            self.stream.write("\n")
+            self.stream.flush()
+            self._open_line = False
+
+    # -- lifecycle ----------------------------------------------------------
+    def start_file(self, name: str, size: int) -> None:
+        self.name, self.size, self.sent = name, size, 0
+        self._t0 = self._last_t = time.monotonic()
+        self._last_pct = -PROGRESS_EVERY_PCT
+        self._write(self._line())
+
+    def advance(self, n: int) -> None:
+        self.sent += n
+        now = time.monotonic()
+        pct = 100.0 * self.sent / self.size if self.size else 100.0
+        due = (self.tty
+               or pct - self._last_pct >= PROGRESS_EVERY_PCT
+               or now - self._last_t >= PROGRESS_EVERY_S
+               or self.sent >= self.size)
+        if due:
+            self._last_t, self._last_pct = now, pct
+            self._write(self._line())
+
+    def finalizing(self) -> None:
+        self._break_line()
+        self._write(f"    finalizing {self.name} ...", final=True)
+
+    def finish_file(self) -> None:
+        self.files_done += 1
+        self.bytes_done += self.size
+        self._write(
+            f"    done {self.name}  "
+            f"[{self.files_done}/{self.n_files} files, "
+            f"{_human(self.bytes_done)} / {_human(self.total_bytes)}]", final=True)
+
+    # -- rendering ----------------------------------------------------------
+    def _line(self) -> str:
+        elapsed = max(time.monotonic() - self._t0, 1e-9)
+        rate = self.sent / elapsed
+        pct = 100.0 * self.sent / self.size if self.size else 100.0
+        eta = (self.size - self.sent) / rate if rate > 0 else float("inf")
+        overall = self.bytes_done + self.sent
+        return (f"  {self.name}  {_human(self.sent)}/{_human(self.size)} "
+                f"{pct:5.1f}%  {_human(rate)}/s  ETA {_hms(eta)}  "
+                f"| {self.files_done}/{self.n_files} files, "
+                f"{_human(overall)}/{_human(self.total_bytes)}")
+
+
+class _ChunkedReader:
+    """File wrapper that streams in UPLOAD_CHUNK pieces and counts bytes served.
+
+    Why the shape of this class matters to `requests`:
+
+    * ``__iter__`` is what makes requests classify the body as a *stream*
+      (``prepare_body`` tests ``hasattr(data, "__iter__")``), so the file is not
+      slurped into a bytes object first.
+    * ``__len__`` is what ``requests.utils.super_len`` reads first, so a
+      ``Content-Length`` header is set and the body is **not** sent chunked.
+    * ``read`` is provided because some urllib3/http.client paths prefer it. It is
+      served from a one-chunk buffer, so disk reads stay UPLOAD_CHUNK-sized whatever
+      block size the HTTP layer asks for.
+    * ``tell`` and ``seek`` are deliberately **absent**: ``super_len`` subtracts
+      ``tell()`` from ``len()`` when both exist, which would understate
+      Content-Length once reading has begun.
+
+    Peak memory is one chunk. Bytes are counted exactly once, as they leave the
+    object, whichever of the two paths the HTTP layer takes.
+    """
+
+    def __init__(self, path: Path, size: int, on_advance=None,
+                 chunk: int = UPLOAD_CHUNK):
+        self._fh = open(path, "rb")
+        self._size = size
+        self._chunk = chunk
+        self._on_advance = on_advance
+        self._buf = b""
+        self.count = 0                 # bytes served out of this object
+
+    def __len__(self) -> int:
+        return self._size
+
+    def _advance(self, n: int) -> None:
+        self.count += n
+        if self._on_advance is not None:
+            self._on_advance(n)
+
+    def _refill(self) -> bool:
+        if not self._buf:
+            self._buf = self._fh.read(self._chunk)
+        return bool(self._buf)
+
+    def read(self, amt: int | None = None) -> bytes:
+        if amt is None or amt < 0:
+            out = []
+            while self._refill():
+                out.append(self._buf)
+                self._advance(len(self._buf))
+                self._buf = b""
+            return b"".join(out)
+        if not self._refill():
+            return b""
+        take, self._buf = self._buf[:amt], self._buf[amt:]
+        self._advance(len(take))
+        return take
+
+    def __iter__(self):
+        while self._refill():
+            chunk, self._buf = self._buf, b""
+            self._advance(len(chunk))
+            yield chunk
+
+    def close(self) -> None:
+        try:
+            self._fh.close()
+        except Exception:                                      # noqa: BLE001
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -228,14 +424,23 @@ def deposit(base: str, tok: str, meta: dict,
         r.raise_for_status()
         print("  metadata set")
 
+        prog = _Progress(len(plan), sum(sz for _, _, _, sz in plan))
         for path, name, digest, size in plan:
-            print(f"  uploading {name} ({size:,} bytes) ...", flush=True)
-            with open(path, "rb") as fh:
-                r = s.put(f"{bucket}/{name}", data=fh)
-            r.raise_for_status()
+            prog.start_file(name, size)
+            reader = _ChunkedReader(path, size, on_advance=prog.advance)
+            try:
+                r = s.put(f"{bucket}/{name}", data=reader)
+                # every byte has left the wrapper; the server has not answered yet
+                prog.finalizing()
+                r.raise_for_status()
+            finally:
+                reader.close()
+            if reader.count != size:
+                sys.exit(f"error: {name}: streamed {reader.count:,} bytes but the file "
+                         f"is {size:,} bytes -- refusing to continue")
             # Zenodo returns the MD5 it computed; SHA-256 is verified by re-download
             # below, which is the check that actually matters to us.
-            print(f"    stored")
+            prog.finish_file()
         return dep
     except Exception as exc:                                   # noqa: BLE001
         sys.exit(_redact(f"error during deposit: {exc}", tok))
@@ -324,6 +529,8 @@ def main() -> None:
         print(f"omitted     : {', '.join(dropped)}  (optional and empty -- dropped, "
               f"not sent)")
     print(f"token       : read from ${'ZENODO_SANDBOX_TOKEN' if sandbox else 'ZENODO_TOKEN'}; never shown")
+    print(f"streaming   : {_human(UPLOAD_CHUNK)} chunks, Content-Length set, progress to "
+          f"stderr ({'TTY, one redrawn line' if sys.stderr.isatty() else f'not a TTY, a line every {PROGRESS_EVERY_PCT:.0f}% or {PROGRESS_EVERY_S:.0f} s'})")
 
     if args.verify_only:
         tok = _token(sandbox)
