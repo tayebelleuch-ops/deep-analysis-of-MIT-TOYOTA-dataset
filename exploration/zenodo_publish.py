@@ -96,24 +96,73 @@ def sha256(p: Path) -> str:
 # pre-flight, all local
 # ---------------------------------------------------------------------------
 
+REQUIRED_TOP = ("title", "upload_type", "access_right", "license")
+
+
+def _prune(meta: dict) -> tuple[dict, list[str]]:
+    """Drop optional fields left empty, rather than refusing to deposit.
+
+    `publication_date` and a creator's `affiliation` are optional on Zenodo --
+    publication_date defaults to the deposit date, and an absent affiliation simply
+    does not appear on the record. Sending them as empty strings would either be
+    rejected or render as a blank field, so they are removed here. Required fields
+    are never pruned; they are checked instead.
+    """
+    dropped = []
+    out = {k: v for k, v in meta.items() if not k.startswith("_")}
+    for k in list(out):
+        if isinstance(out[k], str) and not out[k].strip():
+            if k in REQUIRED_TOP:
+                continue                      # reported as an error below, not dropped
+            dropped.append(k)
+            del out[k]
+    creators = []
+    for i, c in enumerate(out.get("creators", [])):
+        kept = {}
+        for k, v in c.items():
+            if isinstance(v, str) and not v.strip():
+                dropped.append(f"creators[{i}].{k}")
+            else:
+                kept[k] = v
+        creators.append(kept)
+    if creators:
+        out["creators"] = creators
+    return out, dropped
+
+
 def load_metadata(strict: bool) -> dict:
     """`strict` is True only when a write is about to happen: a dry run should still be
-    able to show the plan while the placeholders are outstanding."""
+    able to show the plan while anything is outstanding."""
     meta = json.loads(METADATA.read_text())["metadata"]
+    meta, dropped = _prune(meta)
+
+    # genuine placeholders are still a hard stop -- an unfilled template must not be
+    # deposited. An EMPTY optional field is not a placeholder; it is a choice.
     bad = [k for k, v in meta.items() if isinstance(v, str) and PLACEHOLDER.search(v)]
     for i, c in enumerate(meta.get("creators", [])):
         bad += [f"creators[{i}].{k}" for k, v in c.items()
                 if isinstance(v, str) and PLACEHOLDER.search(v)]
-    if bad:
-        msg = ("metadata still contains placeholders:\n  " + "\n  ".join(bad)
-               + "\nFill them in exploration/zenodo_metadata.json.")
+    missing = [k for k in REQUIRED_TOP if not str(meta.get(k, "")).strip()]
+    if not meta.get("creators") or any(not c.get("name", "").strip()
+                                       for c in meta["creators"]):
+        missing.append("creators[].name")
+
+    if bad or missing:
+        msg = ""
+        if bad:
+            msg += "unfilled placeholders:\n  " + "\n  ".join(bad) + "\n"
+        if missing:
+            msg += "missing required fields:\n  " + "\n  ".join(missing) + "\n"
+        msg += "Fix them in exploration/zenodo_metadata.json."
         if strict:
             sys.exit("error: " + msg + " Refusing to deposit.")
         print("WARNING: " + msg + "\n")
-    meta["_placeholders"] = bad
+
     if meta.get("license") != "cc-by-4.0":
         sys.exit(f"error: licence is {meta.get('license')!r}, expected 'cc-by-4.0'. "
                  "These files are an adaptation of CC BY 4.0 data.")
+    meta["_placeholders"] = bad + missing
+    meta["_dropped"] = dropped
     return meta
 
 
@@ -257,6 +306,7 @@ def main() -> None:
 
     meta = load_metadata(strict=args.go)
     placeholders = meta.pop("_placeholders", [])
+    dropped = meta.pop("_dropped", [])
     plan = check_payload()
     total = sum(sz for _, _, _, sz in plan)
 
@@ -270,7 +320,10 @@ def main() -> None:
     print(f"files       : {len(plan)}, {total:,} bytes ({total/1e9:.2f} GB)")
     for _, name, digest, size in plan:
         print(f"              {digest[:16]}...  {size:>13,}  {name}")
-    print("token       : read from the environment; not shown")
+    if dropped:
+        print(f"omitted     : {', '.join(dropped)}  (optional and empty -- dropped, "
+              f"not sent)")
+    print(f"token       : read from ${'ZENODO_SANDBOX_TOKEN' if sandbox else 'ZENODO_TOKEN'}; never shown")
 
     if args.verify_only:
         tok = _token(sandbox)

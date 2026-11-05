@@ -1,26 +1,29 @@
 {
   "_comment": [
     "DRAFT -- nothing has been uploaded. Zenodo legacy deposit API format",
-    "(POST /api/deposit/depositions). Two fields MUST be filled in before this is",
-    "usable and are deliberately left as obvious placeholders:",
-    "  creators[0].orcid        -- the ORCID iD of the depositor",
-    "  creators[0].affiliation  -- the depositor's affiliation",
+    "(POST /api/deposit/depositions).",
+    "OPTIONAL fields may be left as an empty string; zenodo_publish.py drops any",
+    "empty field before sending rather than refusing to deposit:",
+    "  publication_date         -- Zenodo defaults it to the deposit date",
+    "  creators[].affiliation   -- omitted from the record if empty",
+    "REQUIRED and checked before any write: title, upload_type, access_right,",
+    "license, and a name for every creator.",
     "A record cannot be edited or deleted once published on Zenodo, only superseded,",
-    "so run against sandbox.zenodo.org first (zenodo_publish.py --sandbox)."
+    "so run against sandbox.zenodo.org first (the script's default)."
   ],
   "metadata": {
     "upload_type": "dataset",
     "title": "Within-cycle series of the MIT-Stanford-TRI fast-charging battery dataset, extracted and audited (v1.1)",
     "version": "1.1.0",
     "language": "eng",
-    "publication_date": "PLACEHOLDER-SET-AT-DEPOSIT",
+    "publication_date": "",
     "access_right": "open",
     "license": "cc-by-4.0",
     "creators": [
       {
         "name": "Elleuch, Tayeb",
-        "affiliation": "PLACEHOLDER-AFFILIATION",
-        "orcid": "0000-0000-0000-0000"
+        "affiliation": "",
+        "orcid": "0009-0007-9435-0587"
       }
     ],
     "keywords": [
