@@ -105,3 +105,294 @@ def url_for(filename: str) -> str:
             )
         )
     return "{base}/{name}".format(base=RAW_BASE, name=filename)
+
+
+# ===========================================================================
+# v1.1: the within-cycle extraction
+# ===========================================================================
+# The v1.1 release adds the six per-cycle summary series v1.0 omits, nine
+# series-validity flags and ~45 per-cycle diagnostics, as one CSV index, plus the
+# nine within-cycle series as three HDF5 files.
+#
+# v0.2.0 of this package reads the **index only**, which is why it still needs
+# nothing but pandas and numpy. The HDF5 files arrive with v0.3.0 behind the
+# optional ``series`` extra.
+#
+# Provenance: exploration/MANIFEST_v1.1.md. tests/test_manifest_hashes.py asserts
+# every value below still equals the value recorded there.
+
+# ---------------------------------------------------------------------------
+# The Zenodo record -- THE ONLY PLACE ANYTHING ZENODO-DEPENDENT LIVES
+# ---------------------------------------------------------------------------
+# The deposit exists as a DRAFT and is not published, so the DOI, the record id
+# and the file URLs are not knowable yet. While these are ``None``:
+#
+#   * data_dir=, set_data_dir(), $MATR_CLEAN_DATA_DIR and a clone all work fully;
+#   * any path that would download raises DataDirError with one clear message.
+#
+# To fill them after publication: set the three values below and V11_DATA_TAG from
+# the minted record, add the three hashes noted under V11_SHA256, and change
+# nothing else -- no other module mentions Zenodo.
+
+#: TODO after publication, e.g. "10.5281/zenodo.XXXXXXX" (the *version* DOI, never
+#: the concept DOI: a concept DOI resolves to "latest", which would silently change
+#: what this package loads).
+V11_ZENODO_DOI = None
+
+#: TODO after publication: the numeric record id of the published version.
+V11_ZENODO_RECORD_ID = None
+
+#: TODO after publication: "https://zenodo.org/records/{record_id}/files".
+V11_ZENODO_BASE = None
+
+#: TODO after publication: the git tag the record corresponds to. ``v1.1`` is
+#: proposed in MANIFEST_v1.1.md and is **not** created.
+V11_DATA_TAG = None
+
+# ---------------------------------------------------------------------------
+# Filenames
+# ---------------------------------------------------------------------------
+
+#: The per-cycle index: 114,738 rows x 77 columns. All of v0.2.0 reads this file.
+V11_INDEX_FILE = "within_cycle_index.csv"
+
+#: Per-cell metadata absent from analysis_set_cells.csv: 135 rows.
+V11_CELLS_FILE = "within_cycle_cells.csv"
+
+#: The two files v0.2.0 needs.
+V11_REQUIRED_FILES = (V11_INDEX_FILE, V11_CELLS_FILE)
+
+#: ``source_batch_date`` -> HDF5 filename. Read by v0.3.0, listed here so the
+#: hashes and the dispatch rule live in one place.
+#:
+#: Keyed by ``source_batch_date`` and **never** by ``batch_date``: five cells are
+#: continued across batches, and ``batch_date`` in both v1.0 CSVs is the *first*
+#: segment's on every row, so it names the wrong file for a segment-2 cycle.
+V11_H5_FILES = {
+    "2017-05-12": "within_cycle_2017-05-12.h5",
+    "2017-06-30": "within_cycle_2017-06-30.h5",
+    "2018-04-12": "within_cycle_2018-04-12.h5",
+}
+
+#: Everything the published record carries that this package may read.
+V11_ALL_DATA_FILES = V11_REQUIRED_FILES + tuple(
+    V11_H5_FILES[date] for date in sorted(V11_H5_FILES)
+)
+
+# ---------------------------------------------------------------------------
+# SHA-256 and sizes, from MANIFEST_v1.1.md
+# ---------------------------------------------------------------------------
+# These five are final: the extraction is byte-reproducible, so a correctly
+# regenerated file hashes to the same value. They are pinned now, before
+# publication, because they do not depend on the record.
+#
+# The published record carries three further files that nothing hashes today and
+# that this package never reads: SHA256SUMS.txt, EXTRACTION.md and LICENSE.txt.
+# SHA256SUMS.txt itself covers six files, of which five are published -- it also
+# hashes within_cycle_index_raw.csv, the pre-flag intermediate, which is
+# deliberately not uploaded. So of the record's 8 files, 5 have published hashes
+# and 4 are ever loaded.
+
+V11_SHA256 = {
+    "within_cycle_2017-05-12.h5": (
+        "8a789f4a83409ad0c1d6c214c836f2de94b63ef2e73a50722fe057c3d8a89d77"
+    ),
+    "within_cycle_2017-06-30.h5": (
+        "5f3f752d9d9a0276442fbb853941d9b212e7fffd152995b207ae6fa4a4503fae"
+    ),
+    "within_cycle_2018-04-12.h5": (
+        "bdd195323719986b3d77d4bd610c26e5e4e7c8d8ddde558b03b4696a2bcc6107"
+    ),
+    V11_INDEX_FILE: (
+        "93176963bbaaaea60a46591a3e7d1e5c3f1a04a250107eec1b754a3311b207dc"
+    ),
+    V11_CELLS_FILE: (
+        "ebdfca86381f7a092da9dcfdb57c90a18c716957fd37080aa8c5cd208ab3147d"
+    ),
+}
+
+V11_SIZE_BYTES = {
+    "within_cycle_2017-05-12.h5": 797659714,
+    "within_cycle_2017-06-30.h5": 581592476,
+    "within_cycle_2018-04-12.h5": 823392641,
+    V11_INDEX_FILE: 72846386,
+    V11_CELLS_FILE: 14379,
+}
+
+#: Total bytes of HDF5, for the messages that warn about the download size.
+V11_H5_TOTAL_BYTES = sum(
+    V11_SIZE_BYTES[name] for name in V11_H5_FILES.values()
+)
+
+# ---------------------------------------------------------------------------
+# Columns
+# ---------------------------------------------------------------------------
+
+#: Width of the published index. v0.2.0 reads the subset below with ``usecols``,
+#: so the full 72.8 MB is never materialised; the other ~48 columns are per-cycle
+#: diagnostics, documented in exploration/EXTRACTION.md section 4 and readable
+#: straight from the file.
+V11_INDEX_N_COLUMNS = 77
+
+#: Keys and provenance. ``source_struct_index`` is kept because it is the evidence
+#: that addressing is not positional: it differs from ``source_channel - 1`` for
+#: 113 of the 140 struct rows.
+V11_KEY_COLUMNS = (
+    "cell_uid",
+    "cycle",
+    "segment",
+    "source_batch_date",
+    "source_channel",
+    "source_struct_index",
+    "h5_row",
+    "n_samples",
+    "grid_len_raw",
+)
+
+#: The four status flags.
+V11_STATUS_FLAGS = (
+    "in_analysis_set",
+    "beyond_crossing",
+    "is_placeholder",
+    "is_series_valid",
+)
+
+#: The nine checks whose conjunction is ``is_series_valid``. Each asks one question
+#: about one cycle's own series; none uses a window over neighbouring cycles, which
+#: is what makes them independent of the v1.0 summary-level flags.
+V11_COMPONENT_FLAGS = (
+    "series_present",
+    "series_time_monotone",
+    "series_time_contiguous",
+    "series_duration_plausible",
+    "series_length_plausible",
+    "series_voltage_in_range",
+    "series_current_in_range",
+    "series_grid_in_range",
+    "series_no_nan",
+)
+
+#: The six per-cycle summary series that none of the three v1.0 CSVs carries,
+#: plus ``QDischarge_Ah``, which they do -- it is carried here as the join proof
+#: and is bit-for-bit equal to ``QD_Ah`` on all 113,559 shared rows.
+V11_SERIES_COLUMNS = (
+    "QDischarge_Ah",
+    "QCharge_Ah",
+    "IR_ohm",
+    "Tavg_C",
+    "Tmax_C",
+    "Tmin_C",
+    "chargetime_min",
+)
+
+#: The six of those that are genuinely new in v1.1.
+V11_NEW_SERIES_COLUMNS = tuple(
+    name for name in V11_SERIES_COLUMNS if name != "QDischarge_Ah"
+)
+
+#: What ``load_cycle_features`` reads from the index, in output order.
+V11_TABLE_COLUMNS = (
+    V11_KEY_COLUMNS + V11_STATUS_FLAGS + V11_COMPONENT_FLAGS + V11_SERIES_COLUMNS
+)
+
+#: The six columns ``within_cycle_cells.csv`` adds to ``analysis_set_cells.csv``.
+V11_CELL_COLUMNS = (
+    "n_segments",
+    "segments_resolved",
+    "n_cycles_total",
+    "policy_underscore",
+    "policy_readable_as_stored",
+    "cycle_life_struct_field",
+)
+
+#: The v1.1 per-cycle flag, named so a caller can read it off the package rather
+#: than typing the string. Its nine components are :data:`V11_COMPONENT_FLAGS`.
+#:
+#: ``is_series_valid`` is **not** a replacement for ``is_clean_cycle`` and neither
+#: supersedes the other: ``is_clean_cycle`` judges a cycle's QDischarge against its
+#: neighbours (an 11-cycle rolling median), ``is_series_valid`` judges the integrity
+#: of the cycle's own trace. On the 113,559 analysis-set rows they disagree both
+#: ways -- 171 rows are clean but series-invalid, 87 the reverse. The 171 proposed
+#: corrections in exploration/tables/v11_proposed_clean_cycle_corrections.csv are
+#: **not applied** to any v1.0 file and the v1.0 hashes above stay pinned.
+V11_SERIES_FLAG = "is_series_valid"
+
+#: The three interpolated grid fields, on the :data:`V11_VDLIN_POINTS`-point grid.
+#: Read by v0.3.0; named here so ``describe()`` can say what is still missing.
+V11_GRID_FIELDS = ("Qdlin", "Tdlin", "discharge_dQdV")
+
+#: The six native (ragged) within-cycle series, plus the time base.
+V11_NATIVE_FIELDS = ("t", "I", "V", "T", "Qc", "Qd")
+
+#: The voltage grid: 1000 points, 3.5 V -> 2.0 V. Stored in every HDF5 file as
+#: ``/vdlin`` and returned as stored, never reconstructed -- it is equal to
+#: ``np.linspace(3.5, 2.0, 1000)`` to one ulp but not bitwise (15 of 1000 points
+#: differ, by <= 4.44e-16).
+V11_VDLIN_POINTS = 1000
+V11_VDLIN_START_V = 3.5
+V11_VDLIN_STOP_V = 2.0
+
+#: Published row counts, asserted by tests/test_v11_counts.py against the data.
+V11_STRUCT_CYCLES = 114738
+V11_ANALYSIS_CYCLES = 113559
+V11_BEYOND_CROSSING = 1179
+V11_PLACEHOLDERS = 46
+V11_CELLS = 135
+V11_STRUCT_ROWS = 140
+
+#: ``is_series_valid`` is False on this many cycles, across this many cells. The
+#: 48/32/34 triple quoted in REPORT_v1.1.md is the ``series_grid_in_range``
+#: component alone, not the total -- see V11_GRID_RANGE_* below.
+V11_SERIES_INVALID_CYCLES = 249
+V11_SERIES_INVALID_CELLS = 97
+
+#: The impossible interpolated values (finding U13): Qdlin outside
+#: [-0.10, 1.50] Ah, Tdlin outside [0, 80] degC or dQdV outside [-200, 0] Ah/V.
+#: Extremes reach +1430.7 Ah and -4030.3 Ah on a 1.1 Ah cell.
+V11_GRID_RANGE_CYCLES = 48
+V11_GRID_RANGE_CELLS = 32
+V11_GRID_RANGE_CLEAN_IN_V1_0 = 34
+
+#: The two flags' disagreement on the 113,559 analysis-set rows.
+V11_DISPUTED_CYCLES = 171      # is_clean_cycle True, is_series_valid False
+V11_DISPUTED_CELLS = 54
+V11_REVERSE_CYCLES = 87        # is_clean_cycle False, is_series_valid True
+V11_BOTH_INVALID_CYCLES = 78
+V11_BOTH_VALID_CYCLES = 113223
+
+#: The five cells continued across batches. Their segment-2 cycles live in
+#: ``within_cycle_2017-06-30.h5`` while their ``batch_date`` says ``2017-05-12``.
+#: tests/test_v11_continuation.py asserts the dispatch uses source_batch_date.
+V11_CONTINUATION_CELLS = (
+    "EL150800460486",
+    "EL150800460514",
+    "EL150800460623",
+    "EL150800464865",
+    "EL150800464977",
+)
+
+
+def v11_url_for(filename: str) -> str:
+    """Return the pinned Zenodo URL for one v1.1 file.
+
+    Raises :class:`RuntimeError` while the record is unpublished, because there is
+    no honest URL to return. Callers that want the published/unpublished answer
+    without an exception should test :func:`v11_is_published`.
+    """
+    if filename not in V11_SHA256:
+        raise ValueError(
+            "{0!r} is not a v1.1 data file: {1}".format(
+                filename, ", ".join(sorted(V11_SHA256))
+            )
+        )
+    if not v11_is_published():
+        raise RuntimeError(
+            "the v1.1 Zenodo record is not published, so {0} has no URL yet"
+            .format(filename)
+        )
+    return "{base}/{name}".format(base=V11_ZENODO_BASE, name=filename)
+
+
+def v11_is_published() -> bool:
+    """True once the Zenodo placeholders in this module have been filled in."""
+    return bool(V11_ZENODO_BASE) and bool(V11_ZENODO_RECORD_ID)

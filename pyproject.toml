@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matr-clean"
-version = "0.1.1"
+version = "0.2.0"
 description = "Import the cleaned MIT-Stanford-TRI battery analysis set with pandas and numpy only"
 readme = "USAGE.md"
 requires-python = ">=3.9"
@@ -26,6 +26,11 @@ dependencies = ["pandas", "numpy"]
 
 [project.optional-dependencies]
 test = ["pytest"]
+# v0.3.0 reads the three HDF5 files of the v1.1 extraction. The floor is 3.0
+# because the files use nothing newer than gzip + shuffle on plain datasets; it is
+# tested, not assumed. v0.2.0 itself never imports h5py -- the per-cycle index it
+# reads is a CSV -- so installing without this extra is the normal case today.
+series = ["h5py>=3.0"]
 
 [project.urls]
 Homepage = "https://github.com/tayebelleuch-ops/deep-analysis-of-MIT-TOYOTA-dataset"

@@ -13,18 +13,29 @@ h5py, and none of the raw ``.mat`` files.
     >>> for split in mc.cv_splits("batch"):
     ...     ...
 
+As of v0.2.0 the per-cycle *exogenous* variables are here too, read from the v1.1
+within-cycle index -- still pandas and numpy only, because that index is a CSV::
+
+    >>> feats = mc.load_cycle_features()   # IR, QCharge, Tavg/Tmax/Tmin, chargetime
+    >>> cond = mc.load_conditioning()      # policy numbers aligned to cells
+
 Where the data comes from: an explicit ``data_dir``, then :func:`set_data_dir`, then
 ``$MATR_CLEAN_DATA_DIR``, then the repository's ``exploration/`` folder if you are in
 a clone, and finally a one-off download into ``~/.cache/matr_clean`` from URLs pinned
 to the ``v1.0`` tag. Every file is checked against the SHA-256 recorded for that tag
 before it is used.
 
-What is **not** here: ``IR``, ``QCharge``, ``Tavg``, ``Tmax``, ``Tmin``,
-``chargetime``, the nine within-cycle series and the ``Vdlin`` grid. Of the struct's
-per-cycle measurements the CSVs carry ``QDischarge`` alone. A later release will read
-the rest; it is not released yet. Relatedly, ``is_clean_cycle`` is a summary-level
-flag about capacity and is not safe for voltage or time-series work -- see
-:func:`load_cycles`.
+What is **not** here yet: the nine within-cycle series (``t``, ``I``, ``V``, ``T``,
+``Qc``, ``Qd``) and the three interpolated grid curves (``Qdlin``, ``Tdlin``,
+``discharge_dQdV``) with their ``Vdlin`` grid. Those live in 2.2 GB of HDF5 and
+arrive in v0.3.0 behind an optional ``series`` extra. ``mc.describe()`` lists every
+such field and which release carries it.
+
+``is_clean_cycle`` is a summary-level flag about capacity and is **not** safe for
+voltage or time-series work. v1.1 adds ``is_series_valid``, computed from each
+cycle's own series, which :func:`load_cycle_features` applies by default and
+:func:`load_cycles` applies on request. The two disagree in both directions and
+neither supersedes the other; no v1.0 file or flag is edited.
 
 The data is CC BY 4.0 (see ``NOTICE.md`` for the attribution); this code is MIT.
 Decisions D0-D5 behind the cleaning are in ``exploration/REPORT.md`` section 6 and are
@@ -40,6 +51,7 @@ from ._locate import (
     DownloadError,
     IntegrityError,
     get_data_dir,
+    resolve_v11_dir,
     set_data_dir,
 )
 from .constants import (
@@ -52,6 +64,12 @@ from .constants import (
     SHA256,
     SOH_THRESHOLD_AH,
 )
+from .features import (
+    load_cell_features,
+    load_conditioning,
+    load_cycle_features,
+    v11_counts,
+)
 from .loaders import (
     Trajectories,
     counts,
@@ -63,7 +81,7 @@ from .loaders import (
 )
 from .splits import Split, cv_splits, split_labels
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = [
     "__version__",
@@ -72,11 +90,17 @@ __all__ = [
     "load_cycles",
     "load_trajectories",
     "load_labels",
+    # v1.1
+    "load_cycle_features",
+    "load_cell_features",
+    "load_conditioning",
+    "v11_counts",
     "cv_splits",
     "describe",
     "counts",
     "set_data_dir",
     "get_data_dir",
+    "resolve_v11_dir",
     # types
     "Trajectories",
     "Split",

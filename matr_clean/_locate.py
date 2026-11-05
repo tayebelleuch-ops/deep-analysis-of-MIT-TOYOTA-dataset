@@ -23,6 +23,18 @@ user's time. A file whose SHA-256 is wrong is deleted and the error raised. Down
 land on a temporary ``.part`` file in the cache and are renamed into place only once
 complete, so no attempt -- successful, failed or interrupted -- can leave a partial
 file behind for a later run to mistake for the real thing.
+
+The v1.1 within-cycle files (:func:`resolve_v11_dir`) use the same five steps, with
+step 4 widened to the clone's ``exploration/extract_out/`` folder, which is where the
+extraction writes them. They are resolved **independently** of the three v1.0 CSVs,
+because the two sets normally sit in different directories, and they are hashed
+against :data:`matr_clean.constants.V11_SHA256`.
+
+Step 5 cannot run yet: the v1.1 Zenodo record is a draft, so
+``constants.V11_ZENODO_BASE`` is ``None`` and there is no URL to fetch. Until it is
+published, :func:`resolve_v11_dir` raises :class:`DataDirError` naming the two routes
+that do work -- ``data_dir=`` and ``$MATR_CLEAN_DATA_DIR`` -- rather than attempting a
+download it cannot perform.
 """
 
 from __future__ import annotations
@@ -51,6 +63,7 @@ __all__ = [
     "set_data_dir",
     "get_data_dir",
     "resolve_data_dir",
+    "resolve_v11_dir",
 ]
 
 #: Attempts per file, including the first. Four attempts span about 1 + 2 + 4
@@ -87,6 +100,9 @@ _SESSION_DIR = None  # type: Optional[Path]
 
 # Directories whose three files have already been hashed in this process.
 _VERIFIED = set()  # type: set
+
+# Directories whose v1.1 files have already been hashed, as (directory, filename).
+_V11_VERIFIED = set()  # type: set
 
 # Indirection so a test can observe the waits without spending them.
 _sleep = time.sleep
@@ -488,3 +504,184 @@ def resolve_data_dir(data_dir=None, _allow_download: bool = True) -> Tuple[Path,
         raise DownloadError(_offline_message("downloads are disabled"))
 
     return _populate_cache(), "the download cache ({0}, just downloaded)".format(cache)
+
+
+# ===========================================================================
+# v1.1: the within-cycle files
+# ===========================================================================
+# Resolved separately from the three v1.0 CSVs. In a clone the two sets live in
+# different folders -- exploration/ and exploration/extract_out/ -- and a user who
+# points data_dir= at one of them should not be told the other is missing.
+
+
+def _missing_v11_files(directory: Path, names) -> List[str]:
+    return [name for name in names if not (directory / name).is_file()]
+
+
+def _verify_v11_one(path: Path, name: str, delete_on_mismatch: bool = False) -> None:
+    """Hash one v1.1 file against :data:`constants.V11_SHA256`.
+
+    As for v1.0, a mismatch is never transient and is never retried.
+    """
+    key = (str(path.parent), name)
+    if key in _V11_VERIFIED:
+        return
+
+    actual = _sha256(path)
+    expected = C.V11_SHA256[name]
+    if actual == expected:
+        _V11_VERIFIED.add(key)
+        return
+
+    size = path.stat().st_size if path.exists() else 0
+    if delete_on_mismatch:
+        _unlink_quietly(path)
+    raise IntegrityError(
+        "\n".join(
+            [
+                "{name} does not match the file recorded in "
+                "exploration/MANIFEST_v1.1.md.".format(name=name),
+                "  path:     {0}".format(path),
+                "  expected: {0}".format(expected),
+                "  actual:   {0}".format(actual),
+                "  Expected size: {0} bytes; this file: {1} bytes.".format(
+                    C.V11_SIZE_BYTES[name], size
+                ),
+                "  The extraction is byte-reproducible, so a correctly regenerated"
+                " file hashes to the expected value.",
+                "  The loader will not fall back to another source.",
+            ]
+        )
+    )
+
+
+def _verify_v11(
+    directory: Path, source: str, names, delete_on_mismatch: bool = False
+) -> None:
+    missing = _missing_v11_files(directory, names)
+    if missing:
+        lines = [
+            "{src} does not hold the v1.1 within-cycle files.".format(src=source),
+            "  directory: {0}".format(directory),
+            "  missing:   {0}".format(", ".join(missing)),
+        ]
+        hints = _similar_names(directory, missing)
+        if hints:
+            lines.append(
+                "  The directory does contain similarly named files. The loader needs"
+                " the exact names; rename these:"
+            )
+            for want in sorted(hints):
+                for found in hints[want]:
+                    lines.append("    {0!r}  ->  {1!r}".format(found, want))
+        lines.append("  Required, exactly: {0}".format(", ".join(names)))
+        lines.append(
+            "  In a clone these are written to exploration/extract_out/ by"
+            " exploration/extract_within_cycle.py."
+        )
+        raise DataDirError("\n".join(lines))
+
+    for name in names:
+        _verify_v11_one(
+            directory / name, name, delete_on_mismatch=delete_on_mismatch
+        )
+
+
+def _repo_v11_dirs(names) -> List[Path]:
+    """Candidate v1.1 folders inside a clone.
+
+    ``exploration/extract_out/`` first, because that is where the extraction writes;
+    then ``exploration/`` itself, for someone who moved the files up a level.
+    """
+    candidates = []  # type: List[Path]
+    starts = [Path(__file__).resolve().parent]
+    try:
+        starts.append(Path.cwd().resolve())
+    except OSError:
+        pass
+
+    for start in starts:
+        for parent in [start] + list(start.parents):
+            exploration = parent / "exploration"
+            if not (exploration / "REPORT.md").is_file():
+                continue
+            for folder in (exploration / "extract_out", exploration):
+                if not _missing_v11_files(folder, names) and folder not in candidates:
+                    candidates.append(folder)
+    return candidates
+
+
+def _v11_unpublished_message() -> str:
+    """The one message raised while the Zenodo record is still a draft."""
+    return "\n".join(
+        [
+            "v1.1 data not yet published; use data_dir= or {env}.".format(
+                env=C.DATA_DIR_ENV
+            ),
+            "",
+            "The within-cycle extraction is deposited on Zenodo as a draft, so it has"
+            " no DOI and no file URLs yet, and this package cannot download it.",
+            "Everything local works now. Point the loader at a directory holding"
+            " {0}:".format(" and ".join(C.V11_REQUIRED_FILES)),
+            "  export {0}=/path/to/that/directory".format(C.DATA_DIR_ENV),
+            "or, in Python,",
+            "  import matr_clean; matr_clean.load_cycle_features(data_dir='/path/...')",
+            "",
+            "In a clone of the repository the files are found automatically at"
+            " exploration/extract_out/, with no configuration at all.",
+            "Once the record is published, the placeholders in"
+            " matr_clean/constants.py (V11_ZENODO_*) are filled in and downloading"
+            " works like v1.0's.",
+        ]
+    )
+
+
+def resolve_v11_dir(data_dir=None, names=None) -> Tuple[Path, str]:
+    """Return ``(directory, source_label)`` for a verified v1.1 data directory.
+
+    The lookup order is v0.1.1's, with step 4 widened to the clone's
+    ``exploration/extract_out/``. As for v1.0, a directory the user named explicitly
+    raises rather than falling back: a wrong path is a mistake worth seeing.
+
+    *names* defaults to :data:`constants.V11_REQUIRED_FILES`, the two CSVs v0.2.0
+    reads. v0.3.0 passes the HDF5 filenames it needs instead, one batch at a time,
+    so a user with only one batch on disk is not told the other two are missing.
+    """
+    if names is None:
+        names = C.V11_REQUIRED_FILES
+    names = tuple(names)
+
+    if data_dir is not None:
+        directory = Path(data_dir).expanduser().resolve()
+        _verify_v11(directory, "The directory passed as data_dir=", names)
+        return directory, "data_dir= argument"
+
+    if _SESSION_DIR is not None:
+        _verify_v11(_SESSION_DIR, "The directory passed to set_data_dir()", names)
+        return _SESSION_DIR, "set_data_dir()"
+
+    from_env = os.environ.get(C.DATA_DIR_ENV)
+    if from_env:
+        directory = Path(from_env).expanduser().resolve()
+        _verify_v11(
+            directory, "The directory named by {0}".format(C.DATA_DIR_ENV), names
+        )
+        return directory, "${0}".format(C.DATA_DIR_ENV)
+
+    for folder in _repo_v11_dirs(names):
+        _verify_v11(folder, "The repository's {0} folder".format(folder.name), names)
+        return folder, "the repository's {0}/ folder".format(folder.name)
+
+    cache = C.cache_dir()
+    if not _missing_v11_files(cache, names):
+        _verify_v11(cache, "the download cache", names, delete_on_mismatch=True)
+        return cache, "the download cache ({0})".format(cache)
+
+    # Step 5 proper. Unreachable until the Zenodo record is published.
+    if not C.v11_is_published():
+        raise DataDirError(_v11_unpublished_message())
+
+    raise DownloadError(  # pragma: no cover - no record to download from yet
+        "downloading the v1.1 files is not implemented until v0.3.0; "
+        "they are published at {0}".format(C.V11_ZENODO_BASE)
+    )

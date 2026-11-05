@@ -58,10 +58,19 @@ _READ_KWARGS = _read_csv_kwargs()
 
 
 def _read_csv(path):
+    return _read_csv_with(path)
+
+
+def _read_csv_with(path, **kwargs):
+    """``pd.read_csv`` with the float-parity keyword, plus anything the caller adds.
+
+    ``features.py`` passes ``usecols=`` here so that the 72.8 MB v1.1 index is never
+    materialised in full: only the 36 columns the loader exposes are read.
+    """
     try:
-        return pd.read_csv(path, **_READ_KWARGS)
+        return pd.read_csv(path, **dict(_READ_KWARGS, **kwargs))
     except (TypeError, ValueError):  # pragma: no cover - a pandas that dropped it
-        return pd.read_csv(path)
+        return pd.read_csv(path, **kwargs)
 
 
 class Trajectories(NamedTuple):
@@ -235,7 +244,11 @@ def load_cells(include_test: bool = True, data_dir: Optional[str] = None):
 
 @_docs.register
 def load_cycles(
-    clean: bool = True, include_test: bool = False, data_dir: Optional[str] = None
+    clean: bool = True,
+    include_test: bool = False,
+    require_series_valid: bool = False,
+    data_dir: Optional[str] = None,
+    v11_dir: Optional[str] = None,
 ):
     """Return the per-cycle table, truncated at each cell's 80%-SOH crossing.
 
@@ -273,8 +286,27 @@ def load_cycles(
         rows before the clean filter. ``True`` keeps them: @@n_cycles@@ rows, or
         @@n_cycles_clean@@ with ``clean=True``. Those cells are the fixed held-out
         test set and must not be used for training or model selection.
+    require_series_valid:
+        ``False`` (the default), so **this function behaves exactly as it did in
+        v0.1.1**. ``True`` additionally drops cycles failing the v1.1
+        ``is_series_valid`` flag, computed from each cycle's own nine within-cycle
+        series -- the only thing that catches a broken trace.
+
+        It is a separate argument rather than a third value of ``clean`` because the
+        two flags answer different questions and neither implies the other: 171
+        analysis-set rows are ``is_clean_cycle == True`` yet series-invalid, and 87
+        run the other way. Folding them into one keyword would have made
+        ``clean=True`` mean something new to every caller already written.
+
+        ``True`` requires the v1.1 index, so a call that worked with the three CSVs
+        alone can start needing ``within_cycle_index.csv``. To get the series
+        *columns* as well as the filter, use
+        :func:`matr_clean.load_cycle_features`, where both quality flags default on.
     data_dir:
         As :func:`load_cells`.
+    v11_dir:
+        Where the v1.1 index is, consulted only when ``require_series_valid=True``.
+        See :func:`matr_clean.load_cycle_features`.
 
     Notes
     -----
@@ -288,17 +320,21 @@ def load_cycles(
     nine within-cycle series (``t``, ``I``, ``V``, ``Qc``, ``Qd``, ``T``, ``Qdlin``,
     ``Tdlin``, ``discharge_dQdV``) and the ``Vdlin`` voltage grid. So voltage-domain
     quantities (``Qdlin``, ``dQdV``, delta-Q) cannot be computed from this loader; they
-    live in the raw ``.mat`` files. A later release will read them -- the within-cycle
-    extraction is in progress and **not released**.
+    live in the HDF5 files of the v1.1 extraction and arrive in v0.3.0.
+
+    The six summary series **are** available now, from
+    :func:`matr_clean.load_cycle_features`, which reads the v1.1 per-cycle index
+    rather than these three CSVs.
 
     ``is_clean_cycle`` is **summary-level and nothing more.** Its four components all
     judge ``QDischarge`` and its neighbours -- an 11-cycle rolling median
     (``is_artifact_cycle``), ``chargetime`` (``is_restart_cycle``), distance to a
     continuation seam (``is_junction_cycle``). None looks inside a cycle, so a clean
     cycle can still carry a broken voltage, current, temperature or time trace. **Do
-    not use it to select cycles for voltage-domain or time-series work.** The v1.1
-    extraction adds ``is_series_valid`` for that, computed from each cycle's own series;
-    it is not released yet and ``is_clean_cycle`` does not stand in for it.
+    not use it to select cycles for voltage-domain or time-series work.** Use
+    ``is_series_valid`` for that -- ``require_series_valid=True`` here, or
+    :func:`matr_clean.load_cycle_features`, which applies it by default.
+    ``is_clean_cycle`` does not stand in for it.
 
     ``df.attrs["filters"]`` records what was applied.
     """
@@ -329,12 +365,31 @@ def load_cycles(
         )
         mask = mask & ~drop
 
+    if require_series_valid:
+        from .features import series_valid_keys
+
+        valid = series_valid_keys(data_dir, v11_dir)
+        keys = pd.MultiIndex.from_arrays(
+            [cycles["cell_uid"], cycles["cycle"]]
+        )
+        drop = pd.Series(~keys.isin(valid), index=cycles.index)
+        excluded.append(
+            "cycles failing is_series_valid: {0} rows".format(
+                int((drop & mask).sum())
+            )
+        )
+        mask = mask & ~drop
+
     out = cycles.loc[mask].copy()
     return _stamp(
         out,
         "load_cycles",
         raw,
-        {"clean": clean, "include_test": include_test},
+        {
+            "clean": clean,
+            "include_test": include_test,
+            "require_series_valid": require_series_valid,
+        },
         excluded,
         n_in,
     )
@@ -533,7 +588,7 @@ def load_labels(include_test: bool = False, data_dir: Optional[str] = None):
 # describe
 # ---------------------------------------------------------------------------
 
-def describe(data_dir: Optional[str] = None, file=None) -> Dict[str, Any]:
+def describe(data_dir: Optional[str] = None, file=None, v11_dir=None) -> Dict[str, Any]:
     """Print what each default excludes and how much is left, and return the counts.
 
     Everything printed is counted from the three CSVs at call time.
@@ -605,6 +660,103 @@ def describe(data_dir: Optional[str] = None, file=None) -> Dict[str, Any]:
     say("  {0:>7,} is_junction_cycle   (within 2 cycles of a continuation seam)".format(
         n["n_junction"]))
     say()
-    say("Not available from this loader: voltage-domain features (Qdlin, dQdV,")
-    say("delta-Q). The cycles CSV holds per-cycle summaries only. See USAGE.md.")
+    _describe_v11(say, data_dir, n, v11_dir)
     return n
+
+
+#: Every field the three v1.0 CSVs do **not** carry, with where it now comes from.
+#: Printed by :func:`describe` so the answer is never a guess.
+_NOT_IN_CSVS = (
+    ("IR_ohm", "v0.2.0", "internal resistance, ohm"),
+    ("QCharge_Ah", "v0.2.0", "charge capacity, Ah"),
+    ("Tavg_C", "v0.2.0", "mean cell temperature, degC"),
+    ("Tmax_C", "v0.2.0", "max cell temperature, degC"),
+    ("Tmin_C", "v0.2.0", "min cell temperature, degC"),
+    ("chargetime_min", "v0.2.0", "time to 80% SOC, minutes"),
+    ("t", "v0.3.0", "within-cycle elapsed time, minutes (ragged, float64)"),
+    ("I", "v0.3.0", "within-cycle current, C-rate (ragged)"),
+    ("V", "v0.3.0", "within-cycle voltage, V (ragged)"),
+    ("T", "v0.3.0", "within-cycle temperature, degC (ragged)"),
+    ("Qc", "v0.3.0", "within-cycle charge capacity, Ah (ragged)"),
+    ("Qd", "v0.3.0", "within-cycle discharge capacity, Ah (ragged)"),
+    ("Qdlin", "v0.3.0", "discharge capacity on the Vdlin grid, Ah (1000)"),
+    ("Tdlin", "v0.3.0", "temperature on the Vdlin grid, degC (1000)"),
+    ("discharge_dQdV", "v0.3.0", "dQ/dV on the Vdlin grid, Ah/V (1000)"),
+    ("Vdlin", "v0.3.0", "the 1000-point 3.5 V -> 2.0 V grid itself"),
+)
+
+
+def _describe_v11(say, data_dir, n, v11_dir=None) -> None:
+    """The v1.1 section of :func:`describe`: what arrived, and what has not."""
+    from . import features
+
+    say("The {0} fields the three v1.0 CSVs do not carry".format(len(_NOT_IN_CSVS)))
+    for name, release, what in _NOT_IN_CSVS:
+        say("  {0:<16} {1:<8} {2}".format(name, release, what))
+    say("  Of the struct's per-cycle measurements the v1.0 CSVs carry QDischarge")
+    say("  alone, as QD_Ah. The six marked v0.2.0 are in the v1.1 per-cycle index")
+    say("  and are returned by load_cycle_features(); the nine series and the grid")
+    say("  are HDF5-only and arrive in v0.3.0 behind the optional 'series' extra.")
+    say()
+
+    try:
+        v = features.v11_counts(data_dir, v11_dir)
+    except Exception as exc:  # DataDirError, IntegrityError, DownloadError
+        say("v1.1 per-cycle index: not available here")
+        say("  {0}".format(str(exc).splitlines()[0]))
+        say("  load_cycle_features(), load_cell_features() and")
+        say("  load_cycles(require_series_valid=True) need it; everything else does")
+        say("  not. Point data_dir= or ${0} at a directory holding {1}.".format(
+            C.DATA_DIR_ENV, " and ".join(C.V11_REQUIRED_FILES)))
+        return
+
+    say("v1.1 per-cycle index ({0} columns; {1} read)".format(
+        v["v11_index_columns"], len(C.V11_TABLE_COLUMNS)))
+    say("  {0:>7,} struct cycles, of which {1:,} are the published analysis set"
+        .format(v["v11_struct_cycles"], v["v11_analysis_cycles"]))
+    say("  {0:>7,} past the 0.88 Ah crossing (D2 truncates these; all 2017-06-30)"
+        .format(v["v11_beyond_crossing"]))
+    say("  {0:>7,} zero-filled placeholders (2017-05-12 cycle 1), is_placeholder"
+        .format(v["v11_placeholders"]))
+    say("  {0:>7,} cycles fail is_series_valid, across {1} of {2} cells".format(
+        v["v11_invalid_cycles"], v["v11_invalid_cells"], v["v11_cells"]))
+    say("  {0:>7,} of those are the grid-range failures (U13), across {1} cells;"
+        .format(v["v11_grid_cycles"], v["v11_grid_cells"]))
+    say("          Qdlin there reaches +1,431 and -4,030 Ah on a 1.1 Ah cell.")
+    say()
+    say("is_clean_cycle vs is_series_valid, on the {0:,} analysis-set rows".format(
+        v["v11_analysis_cycles"]))
+    say("            | series-invalid | series-valid")
+    say("  unclean   | {0:>14,} | {1:>12,}".format(
+        v["v11_both_invalid"], v["v11_reverse"]))
+    say("  clean     | {0:>14,} | {1:>12,}".format(
+        v["v11_disputed"], v["v11_both_valid"]))
+    say("  The {0} top-left-of-clean rows are clean in v1.0 yet fail on their own"
+        .format(v["v11_disputed"]))
+    say("  trace, across {0} cells; {1} run the other way. Neither flag supersedes"
+        .format(v["v11_disputed_cells"], v["v11_reverse"]))
+    say("  the other, and no v1.0 file or flag is edited: is_series_valid is")
+    say("  carried alongside. (The 171 proposed corrections are NOT applied.)")
+    say()
+    say("What the v1.1 defaults exclude")
+    say("  load_cycle_features(clean=True, require_series_valid=True,")
+    say("                      beyond_crossing=False, include_test=False)")
+    say("      -> {0:,} rows of {1:,}. All four defaults filter; pass clean=False,"
+        .format(v["v11_default_rows"], v["v11_struct_cycles"]))
+    say("      require_series_valid=False, beyond_crossing=True, include_test=True")
+    say("      for every struct cycle with the flags intact.")
+    say("      require_series_valid alone (clean=False) -> {0:,} rows.".format(
+        v["v11_series_only_rows"]))
+    say("  load_cell_features(include_test=False)  drops the {0} held-out cells;"
+        .format(n["n_test_cells"]))
+    say("      unlike load_cells(), which is the inventory view and keeps them.")
+    say("  load_cycles(require_series_valid=False) unchanged from v0.1.1.")
+    say("      Passing True applies the v1.1 flag to the v1.0 table.")
+    say("  load_conditioning(include_test=False)  needs no v1.1 file at all,")
+    say("      unless include_cycle_counts=True.")
+    say()
+    say("Dropped cycles leave gaps in the cycle sequence. The loader never fills,")
+    say("interpolates, pads or renumbers them; df.attrs['filters'] counts each")
+    say("reason. v1.1 data: {0}".format(
+        "published" if C.v11_is_published() else "Zenodo record not yet published"
+        " (local data_dir only)"))
