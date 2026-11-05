@@ -98,6 +98,24 @@ def _sha256(path: Path) -> str:
 
 
 @pytest.fixture
+def no_local_v11(monkeypatch):
+    """Hide any v1.1 data that happens to be in this clone.
+
+    Step 4 of the lookup order walks up from the installed package and from the
+    working directory looking for ``exploration/extract_out/``. That is exactly
+    what it should do -- and it means a clone with the v1.1 files in place, which
+    is the layout USAGE.md recommends, resolves successfully where a bare checkout
+    raises.
+
+    A test that wants the no-data-anywhere path therefore has to say so, the same
+    way ``isolated_state`` already redirects the cache and unsets the env var.
+    Without this the two "unpublished" tests pass in a fresh checkout and fail on
+    a working machine, which is the wrong way round.
+    """
+    monkeypatch.setattr(_locate, "_repo_v11_dirs", lambda names: [], raising=False)
+
+
+@pytest.fixture
 def v11_dir(tmp_path, monkeypatch) -> Path:
     """A directory holding the committed v1.1 fixture, with hashes repointed.
 

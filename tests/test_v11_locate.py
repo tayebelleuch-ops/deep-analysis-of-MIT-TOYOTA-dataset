@@ -24,7 +24,7 @@ def test_the_record_is_not_published():
     assert C.v11_is_published() is False
 
 
-def test_unpublished_names_both_routes_that_work(tmp_path):
+def test_unpublished_names_both_routes_that_work(no_local_v11):
     with pytest.raises(mc.DataDirError) as excinfo:
         _locate.resolve_v11_dir(None)
     message = str(excinfo.value)
@@ -49,6 +49,28 @@ def test_a_named_directory_reports_what_is_missing_there(tmp_path):
     assert "exploration/extract_within_cycle.py" in message
 
 
+def test_local_data_in_the_clone_is_found_and_beats_the_unpublished_error(
+    exploration_dir, v11_dir, monkeypatch
+):
+    """The other half of the same behaviour, which no test covered before.
+
+    With v1.1 files reachable through step 4 of the lookup order, resolution must
+    succeed rather than raise "not yet published" -- the record being a draft says
+    nothing about what is on disk. This is what fails if ``_repo_v11_dirs`` is ever
+    narrowed, and it is why the two tests above have to opt out of the clone lookup
+    explicitly instead of assuming an empty checkout.
+    """
+    monkeypatch.setattr(
+        _locate, "_repo_v11_dirs", lambda names: [v11_dir], raising=False
+    )
+    directory, source = _locate.resolve_v11_dir(None)
+    assert directory == v11_dir
+    assert "folder" in source
+    # and it is genuinely usable, not merely resolvable
+    frame = mc.load_cycle_features(data_dir=exploration_dir)
+    assert len(frame) > 0
+
+
 def test_no_url_is_invented_while_unpublished():
     with pytest.raises(RuntimeError) as excinfo:
         C.v11_url_for(C.V11_INDEX_FILE)
@@ -60,7 +82,7 @@ def test_url_for_rejects_a_file_that_is_not_in_the_record():
         C.v11_url_for("analysis_set_cycles.csv")
 
 
-def test_unpublished_never_touches_the_network(monkeypatch):
+def test_unpublished_never_touches_the_network(monkeypatch, no_local_v11):
     """The error is raised before any socket call, not after a failed one."""
     import urllib.request
 
