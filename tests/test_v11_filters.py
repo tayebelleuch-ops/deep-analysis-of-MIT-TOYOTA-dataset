@@ -115,34 +115,75 @@ def test_filters_attr_counts_every_reason(exploration_dir, v11_dir):
 
 
 def test_nothing_is_filled_and_gaps_are_left(exploration_dir, v11_dir):
-    """Filtering leaves holes in the cycle sequence. They stay holes."""
+    """Filtering leaves holes in the cycle sequence. They stay holes.
+
+    Two distinct shapes, and the loader produces both: a *truncation*, where the
+    dropped cycles sit at one end (EL150800453240 loses cycles 1-53 to its splice
+    run, so its kept cycles start at 54), and an *interior gap*, where a cycle is
+    dropped from the middle. Neither is filled, and no label is renumbered.
+    """
     out = mc.load_cycle_features(data_dir=exploration_dir, v11_dir=v11_dir)
     everything = _all(exploration_dir, v11_dir)
-    # pick a cell the filters actually cut into
-    cut = None
+
+    cut, interior = 0, 0
     for uid, group in out.groupby("cell_uid"):
         full = everything[(everything["cell_uid"] == uid)
                           & everything["in_analysis_set"]]
+        cycles = np.sort(group["cycle"].to_numpy())
+        # never duplicated, never renumbered: every label survives as itself
+        assert len(np.unique(cycles)) == len(cycles), uid
+        assert set(cycles).issubset(set(full["cycle"].to_numpy())), uid
         if len(group) < len(full):
-            cut = (uid, group, full)
-            break
-    assert cut is not None, "no cell was filtered; fixture is wrong"
-    uid, group, full = cut
-    cycles = group["cycle"].to_numpy()
-    assert len(np.unique(cycles)) == len(cycles)
-    # a gap exists, and the cycle labels were not renumbered to hide it
-    assert np.any(np.diff(np.sort(cycles)) > 1)
-    assert set(cycles).issubset(set(full["cycle"].to_numpy()))
+            cut += 1
+            if np.any(np.diff(cycles) > 1):
+                interior += 1
+
+    assert cut > 0, "no cell was filtered; the fixture is wrong"
+    assert interior > 0, "no cell has an interior gap; the fixture is wrong"
+
+
+def test_a_truncated_cell_keeps_its_original_labels(exploration_dir, v11_dir):
+    """EL150800453240's first 53 cycles are a splice run. The default drops them
+    and the survivors keep their own numbers -- they are not re-based to 1."""
+    out = mc.load_cycle_features(data_dir=exploration_dir, v11_dir=v11_dir)
+    cell = out[out["cell_uid"] == "EL150800453240"]["cycle"].to_numpy()
+    assert len(cell) > 0
+    assert cell.min() > 1, "the corrupt early cycles were not dropped"
+    assert cell.min() == 54
 
 
 def test_no_imputation_of_the_series_columns(exploration_dir, v11_dir):
-    """Out-of-band values are returned as stored, not clipped or repaired."""
+    """Every value is returned exactly as the file stores it -- nothing clipped,
+    rounded, winsorised or filled."""
+    everything = _all(exploration_dir, v11_dir)
+    raw = pd.read_csv(v11_dir / C.V11_INDEX_FILE,
+                      usecols=["cell_uid", "cycle"] + list(C.V11_SERIES_COLUMNS))
+    merged = everything.merge(raw, on=["cell_uid", "cycle"], how="inner",
+                              suffixes=("", "_raw"), validate="1:1")
+    assert len(merged) == len(everything)
+    for name in C.V11_SERIES_COLUMNS:
+        left = merged[name].to_numpy()
+        right = merged[name + "_raw"].to_numpy()
+        assert np.array_equal(left, right, equal_nan=True), name
+
+
+def test_summary_capacity_does_not_reveal_the_grid_failures(exploration_dir,
+                                                            v11_dir):
+    """Why a summary-level filter cannot catch the impossible interpolated
+    values: on those cycles the capacity reading is usually unremarkable, and
+    v1.0 calls most of them clean."""
     everything = _all(exploration_dir, v11_dir)
     bad = everything[~everything["series_grid_in_range"]]
     assert len(bad) > 0
-    # the summary columns on those rows are ordinary -- which is exactly why a
-    # summary-level filter cannot catch them
-    assert bad["QDischarge_Ah"].between(0.0, 1.2).all()
+    ordinary = bad["QDischarge_Ah"].between(0.8, 1.2)
+    assert ordinary.any(), (
+        "at least one grid-range failure must have an ordinary capacity"
+    )
+    assert bad["is_clean_cycle"].fillna(False).any(), (
+        "at least one must be is_clean_cycle == True, or the point is moot"
+    )
+    # and every one of them is caught by the v1.1 flag
+    assert not bad["is_series_valid"].any()
 
 
 def test_include_test_governs_the_held_out_cells(exploration_dir, v11_dir):

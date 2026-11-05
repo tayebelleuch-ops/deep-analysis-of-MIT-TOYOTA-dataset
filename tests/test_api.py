@@ -81,7 +81,8 @@ def test_cv_splits_docstring_states_the_fold_limitation():
 def test_signatures_are_keyword_friendly():
     expected = {
         "load_cells": ["include_test", "data_dir"],
-        "load_cycles": ["clean", "include_test", "data_dir"],
+        "load_cycles": ["clean", "include_test", "require_series_valid", "data_dir",
+                        "v11_dir"],
         "load_labels": ["include_test", "data_dir"],
         "cv_splits": ["kind", "include_test", "data_dir"],
     }

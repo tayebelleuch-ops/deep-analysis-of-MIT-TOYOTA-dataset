@@ -8,6 +8,7 @@ import pytest
 
 import matr_clean as mc
 from matr_clean import constants as C
+from matr_clean import features
 
 
 def _feats(exploration_dir, v11_dir, **kw):
@@ -113,8 +114,7 @@ def test_conditioning_needs_no_v11_data(exploration_dir):
     out = mc.load_conditioning(data_dir=exploration_dir)
     assert out["X"].dtype == np.dtype("float32")
     assert out["X"].shape == (len(out["cell_uid"]), 4)
-    assert out["fields"] == C.CONDITIONING_FIELDS if hasattr(
-        C, "CONDITIONING_FIELDS") else True
+    assert out["fields"] == features.CONDITIONING_FIELDS
     assert len(out["batch_date"]) == len(out["cell_uid"])
     assert len(out["policy_canonical"]) == len(out["cell_uid"])
     assert (out["fold"] != C.TEST_FOLD).all()

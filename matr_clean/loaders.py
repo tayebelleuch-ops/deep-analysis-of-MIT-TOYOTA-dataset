@@ -698,6 +698,9 @@ def _describe_v11(say, data_dir, n, v11_dir=None) -> None:
     say("  and are returned by load_cycle_features(); the nine series and the grid")
     say("  are HDF5-only and arrive in v0.3.0 behind the optional 'series' extra.")
     say()
+    say("Not available from this loader: voltage-domain features (Qdlin, dQdV,")
+    say("delta-Q). They need the three HDF5 files and arrive in v0.3.0.")
+    say()
 
     try:
         v = features.v11_counts(data_dir, v11_dir)

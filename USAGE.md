@@ -305,6 +305,355 @@ each file's SHA-256 and will raise rather than load a file that has been edited.
 
 ---
 
+## The per-cycle exogenous variables (v0.2.0)
+
+`load_cycle_features()` returns the six per-cycle summary series the three v1.0 CSVs
+never carried — internal resistance, charge capacity, the three temperatures and charge
+time — one row per cycle, keyed `(cell_uid, cycle)`.
+
+```python
+import matr_clean as mc
+
+feats = mc.load_cycle_features()
+feats[["cell_uid", "cycle", "IR_ohm", "QCharge_Ah", "Tavg_C", "Tmax_C",
+       "chargetime_min"]].head()
+```
+
+It still needs **only pandas and numpy**. The v1.1 release stores these in
+`within_cycle_index.csv`, a plain CSV, so nothing here imports `h5py`. Only the nine
+within-cycle *series* and the three voltage-grid curves live in HDF5, and those arrive
+in v0.3.0.
+
+Pick columns with `variables=`; keys and every quality flag come back regardless.
+
+```python
+ir = mc.load_cycle_features(variables=("IR_ohm", "Tmax_C"))
+```
+
+**Worked example — resistance growth over life, per batch:**
+
+```python
+feats = mc.load_cycle_features()
+first = feats.groupby("cell_uid")["IR_ohm"].transform("first")
+feats["ir_ratio"] = feats["IR_ohm"] / first
+print(feats.groupby("source_batch_date")["ir_ratio"].describe()[["50%", "max"]])
+```
+
+**Worked example — charge time against the policy's own first-step rate:**
+
+```python
+feats = mc.load_cycle_features(variables=("chargetime_min",))
+cells = mc.load_cell_features()[["cell_uid", "policy_C1", "policy_canonical"]]
+joined = feats.merge(cells, on="cell_uid")
+print(joined.groupby("policy_C1")["chargetime_min"].median())
+```
+
+`load_cell_features()` is `analysis_set_cells.csv` widened by the six per-cell columns
+the extraction adds, `n_segments` and `segments_resolved` among them.
+
+### Conditioning arrays for a generative model
+
+`load_conditioning()` hands you the charging policy as a numeric matrix aligned
+row-for-row with `cell_uid`, which is what a conditional autoencoder or GAN needs:
+
+```python
+cond = mc.load_conditioning()
+cond["X"].shape        # (n_cells, 4) float32: C1, Q1_pct, C2, n_steps
+cond["cell_uid"]       # the alignment contract
+cond["batch_date"]     # keep this as a factor -- the batches are not exchangeable
+```
+
+This one reads `analysis_set_cells.csv` alone, so it works **before** any v1.1 file is
+present. `include_cycle_counts=True` adds per-cell `n_cycles` and `n_series_invalid`
+from the index, and does need it.
+
+`X` is float32 and may contain `NaN` where a policy string does not parse into a field.
+Check with `np.isnan(cond["X"]).any(axis=0)` before fitting a scaler — nothing here
+imputes.
+
+---
+
+## `data_dir` vs `v11_dir`
+
+Two arguments, because in a clone the two file sets live in **different folders**:
+
+| argument | names | default lookup |
+|---|---|---|
+| `data_dir` | the three v1.0 CSVs | `exploration/` |
+| `v11_dir` | `within_cycle_index.csv`, `within_cycle_cells.csv` | `exploration/extract_out/` |
+
+In a clone you pass neither and both are found. If you keep everything in one folder,
+`data_dir=` alone is enough — `v11_dir` falls back to `data_dir` when that directory
+holds the v1.1 files, then to the ordinary lookup order. If they are in separate places,
+name both:
+
+```python
+mc.load_cycle_features(data_dir="~/matr/csv", v11_dir="~/matr/within_cycle")
+```
+
+The lookup order is v0.1.1's, unchanged: argument → `set_data_dir()` →
+`$MATR_CLEAN_DATA_DIR` → clone → `~/.cache/matr_clean`. A directory you name
+explicitly **raises rather than falling back** — a wrong path is a mistake worth
+seeing. Every file is checked against the SHA-256 in `MANIFEST_v1.1.md` once per
+process, and your folders are only ever read.
+
+### The v1.1 data is a Zenodo **draft**, so there is nothing to download yet
+
+The within-cycle extraction is deposited on Zenodo but **not published**. It therefore
+has no DOI and no public file URLs, and every Zenodo-dependent value in
+`matr_clean/constants.py` is a `None`/`TODO` placeholder:
+`V11_ZENODO_DOI`, `V11_ZENODO_RECORD_ID`, `V11_ZENODO_BASE`, `V11_DATA_TAG`.
+
+While they are unset, any path that would download raises one clear error:
+
+```
+v1.1 data not yet published; use data_dir= or MATR_CLEAN_DATA_DIR.
+```
+
+It is raised **before any network call**. Local, clone and Drive use work completely —
+only downloading is unavailable. The five SHA-256 values are already pinned from
+`MANIFEST_v1.1.md`, because the extraction is byte-reproducible and those hashes do not
+depend on the record. Once it is published, filling in those four placeholders is a
+one-file change and downloading works exactly as v1.0's does.
+
+Of the record's eight files, five carry published hashes and four are ever loaded.
+`SHA256SUMS.txt` covers six files of which five are published: it also hashes
+`within_cycle_index_raw.csv`, the pre-flag intermediate that is deliberately not
+uploaded, and it does not hash itself, `EXTRACTION.md` or `LICENSE.txt`.
+
+---
+
+## Two quality flags, two different questions
+
+| flag | asks | window |
+|---|---|---|
+| `is_clean_cycle` (v1.0) | is this cycle's **capacity** consistent with its neighbours? | 11-cycle rolling median on `QDischarge`, plus `chargetime` and seam proximity |
+| `is_series_valid` (v1.1) | is this cycle's **own trace** intact? | one cycle, nine checks, no rolling window |
+
+**Neither supersedes the other, and they disagree in both directions.** On the 113,559
+analysis-set rows:
+
+```
+                 series-invalid   series-valid
+  unclean                   78             87
+  clean                    171        113,223
+```
+
+The 171 are the ones that matter: clean by every summary-level check, yet failing on
+their own trace. They span 54 cells. `is_series_valid` fails on **249 cycles across 97
+of the 135 cells** in total — that is the figure to quote, not the 48/32/34 of its
+`series_grid_in_range` component alone.
+
+**No v1.0 file or flag is edited.** The 171 proposed corrections are published as a
+table (`exploration/tables/v11_proposed_clean_cycle_corrections.csv`) and applied
+nowhere; the v1.0 hashes stay pinned.
+
+### `require_series_valid`
+
+`load_cycle_features` applies **both** flags by default. `load_cycles` keeps its v0.1.1
+behaviour exactly and takes the series filter as a separate argument:
+
+```python
+mc.load_cycles()                             # v0.1.1, unchanged: is_clean_cycle only
+mc.load_cycles(require_series_valid=True)    # + the v1.1 flag, removes 171 more rows
+mc.load_cycle_features()                     # both, by default
+mc.load_cycle_features(clean=False)          # the series flag alone
+mc.load_cycle_features(clean=False, require_series_valid=False,
+                       beyond_crossing=True, include_test=True)   # all 114,738
+```
+
+It is a separate argument rather than a third value of `clean` precisely because the two
+are not nested: folding them together would have silently redefined `clean=True` for
+every call already written. Passing `require_series_valid=True` to `load_cycles` makes it
+need the v1.1 index, so a call that worked with the three CSVs alone can start needing a
+download.
+
+Every call records what it dropped:
+
+```python
+feats = mc.load_cycle_features()
+for reason in feats.attrs["filters"]["excluded"]:
+    print(reason)
+# cycles past the 0.88 Ah crossing (beyond_crossing): 1179 rows
+# cycles of held-out test cells (fold == -1): 23100 rows
+# cycles v1.0 flagged (is_clean_cycle == False): 145 rows
+# cycles failing is_series_valid: 152 rows (of which 152 are is_clean_cycle == True)
+```
+
+`mc.describe()` prints the same accounting, counted live.
+
+---
+
+## Masks and gaps
+
+**Dropped cycles leave gaps, and the loader never fills them.** Nothing is
+interpolated, padded, renumbered, forward-filled or smoothed. The `cycle` column is
+always kept, so the holes are visible:
+
+```python
+feats = mc.load_cycle_features()
+one = feats[feats["cell_uid"] == "EL150800737364"]["cycle"].to_numpy()
+import numpy as np
+print(np.where(np.diff(one) > 1)[0].size, "gaps")   # the dropped cycles
+```
+
+Gap filling is **your** choice, and it should be a deliberate one: a model over
+consecutive cycles and a model over cycle *number* want different things. If you need a
+dense index, reindex explicitly so the fill value is in your code and not in ours:
+
+```python
+dense = (one_cell.set_index("cycle")
+                 .reindex(range(1, int(one_cell["cycle"].max()) + 1)))
+```
+
+In v0.3.0 the array-returning functions follow the same principle differently: a
+fixed-shape `(n_cells, n_cycles, …)` tensor cannot drop a row, so invalid cycles come
+back **masked** — a boolean `valid` array alongside the data — never interpolated and
+never zero-filled. `clean=` drops rows in DataFrame returns and sets the mask in array
+returns. The data at a masked position is whatever the file holds.
+
+---
+
+## If you use `np.nan_to_num`, read this
+
+Two separate problems, and `nan_to_num` addresses neither correctly.
+
+**1. There is almost no `NaN` in this data.** Across all 114,738 cycles there is
+**zero** `NaN` in any of the nine within-cycle series. The only `NaN` anywhere is the
+grid rows of the **46 placeholder cycles** — 2017-05-12's cycle 1, one per cell, which
+the source structs record as two zeros rather than a measurement. The extraction writes
+those fixed-width grid rows as `NaN` deliberately, *so that a reader who ignores the
+flags gets an obviously missing value rather than a plausible one*.
+
+`np.nan_to_num` undoes exactly that safeguard: it turns 46 missing cycles into
+0.0-valued cycles that look like real measurements of a dead cell. Filter on
+`is_placeholder` or `is_series_valid` instead.
+
+Worse, in the **native** (ragged) series the placeholders hold **literal `0.0`**, not
+`NaN` — `V = [0., 0.]`, `t = [0., 0.]`. So NaN-checking cannot detect them there at
+all. The flag is the only signal.
+
+**2. `nan_to_num` does nothing about the impossible values.** On 48 cycles across 32
+cells the interpolated grid curves leave the physically possible band, `Qdlin` reaching
+**+1,430.7 Ah** (`EL150800460511`, cycle 247) and **−4,030.3 Ah**
+(`EL150800737364`, cycle 368) on a **1.1 Ah** cell — and `Tdlin` reaching 523 °C on the
+latter. These are finite floats. `nan_to_num` passes them straight through, and any
+scaler fitted on them is ruined. **34 of the 48 are `is_clean_cycle == True`**, so the
+v1.0 flag will not save you; `series_grid_in_range` and `is_series_valid` will.
+
+**Inside the first 25 cycles** — the window an early-cycle model consumes — labels 1–25
+hold **93 invalid positions across 48 of the 135 cells**: the 46 placeholders, a cluster
+at labels 12–13 from an undocumented multi-cell event, **6 positions with impossible
+`Qdlin` (up to +48.8 Ah)**, and `EL150800453240`, **all 25 of whose first 25 cycles** are
+inside a 53-cycle splice run. That cell contributes nothing usable to a 25-cycle model
+and should be masked wholesale.
+
+```python
+feats = mc.load_cycle_features(clean=False, require_series_valid=False,
+                               include_test=True)
+window = feats[(feats["segment"] == 1) & (feats["cycle"] <= 25)]
+bad = window[~window["is_series_valid"]]
+print(len(bad), "invalid positions across", bad["cell_uid"].nunique(), "cells")
+```
+
+### The early-cycle window, in v0.3.0
+
+`load_early_window(n_cycles=25)` will default to `window="measured"`: the first 25
+cycles with `is_placeholder == False`, so position *k* means the same amount of cycling
+for every cell. For the 46 cells of 2017-05-12 that is labels **2–26**; for the other 89
+it is 1–25. `window="labels"` gives labels 1…N instead, with the placeholder returned
+and masked.
+
+The return **always** carries the `cycle` label matrix, so which labels you got is never
+ambiguous. That matters because the paper's ΔQ(100−10) feature is **label**-based: for
+label-indexed work use `load_series(cell, cycles=[10, 100])`, where you name the labels,
+not `load_early_window`.
+
+---
+
+## The large files, Colab and Drive (v0.3.0)
+
+v0.2.0 downloads nothing new: the per-cycle index is 72.8 MB and the v1.0 CSVs are
+11 MB. v0.3.0 adds **2.20 GB** of HDF5 — three files of 0.6–0.8 GB, one per batch.
+
+**Recommended on Colab: a Drive copy.** A Colab runtime is discarded, so a per-session
+download of 2.3 GB is a recurring cost; Drive is paid once.
+
+```python
+from google.colab import drive
+drive.mount("/content/drive")
+
+import matr_clean as mc
+mc.load_cycle_features(v11_dir="/content/drive/MyDrive/matr/within_cycle")
+```
+
+Keep the files in a plain Drive folder, not a zip: the loader reads them in place and
+never writes to a folder you name. Hashes are verified once per process, which on 2.2 GB
+over Drive takes a few seconds — worth it once per session.
+
+**The alternative is a per-batch download.** Only the batches you touch are fetched, so
+a model that uses one batch pays 0.6–0.8 GB rather than 2.3 GB. Both routes will be
+documented when v0.3.0 ships. Neither is available until the Zenodo record is published.
+
+A cell can span **two** batch files (five do), so a per-batch download is not a
+per-cell partition — see the next section.
+
+---
+
+## Known limitations
+
+**No wall-clock time, at all.** `t` resets to exactly 0.0 at the start of every one of
+the 114,738 cycles, and no struct carries a date. Rests and gaps *between* cycles are
+unrecoverable. No release can fix this.
+
+**Physically impossible values exist and are flagged, not removed.** The 48 cycles
+above. Nothing is clipped, winsorised or repaired.
+
+**No C/10 cycle exists in any struct.** Measured over all 114,692 measured cycles: the
+minimum peak |I| is **4.0006 C**, and no cycle anywhere has a peak below 1.0 C. The
+dataset documentation describes C/10 reference cycles; they are not in these three
+batches. (2018-02-20 carries four `SLOWCYCLE` policies, so they exist in the programme —
+just not here.)
+
+**Only the 2017-06-30 batch has observed crossings below 0.88 Ah.** It was cycled to
+about 0.825 Ah; the other two stop at the criterion. That batch is also the one **public
+mirrors most often omit** — a Kaggle copy with two batches is not the same dataset, and
+any cross-batch claim made without it is made on two thirds of the data.
+
+**The batches are not exchangeable.** Different CV cutoffs (C/50 vs C/20), different
+rests, a ~1.4 C baseline offset in 2018-04-12, and a `Qdlin` capacity bias that varies
+−27 to −49 mAh by batch. Keep `batch_date` as a factor; use `cv_splits("batch")` for any
+generalisation claim. Pooled correlations flatter: ρ = −0.925 pooled against −0.785
+within the weakest batch.
+
+**`batch_date` is the *first* segment's, on every row.** Five cells were continued
+across batches, and for them `batch_date` names the wrong file: a segment-2 cycle of
+`EL150800460514` says `2017-05-12` while its series sit in
+`within_cycle_2017-06-30.h5`. **Use `source_batch_date`** — which is why
+`load_cycle_features` returns that and not `batch_date`. The five are
+`EL150800460486`, `EL150800460514`, `EL150800460623`, `EL150800464865`,
+`EL150800464977`.
+
+**Cells are never addressed by struct position.** No struct stores its rows in channel
+order: `source_struct_index` differs from `source_channel - 1` for **113 of the 140**
+struct rows. Join on `(cell_uid, cycle)`, never on row position, and resolve names like
+"b1c18" through the decoded `channel_id` (that one is channel 17).
+
+**`Qdlin` understates discharge capacity** by a median 31.9 mAh (~3%), because `Vdlin`
+starts at 3.5 V, below the 3.6 V charge cutoff, so the top of the discharge curve is off
+the grid. Per batch: −36.4 / −49.4 / −27.4 mAh. Do not read `Qdlin[-1]` as the cycle's
+capacity.
+
+**Only `QDischarge` is in the three v1.0 CSVs.** `IR`, `QCharge`, the temperatures and
+`chargetime` arrive with v0.2.0; the nine series and the grid with v0.3.0.
+
+**Other MATR batches are out of scope.** 2018-02-20 and 2018-04-03 are readable and
+share **no barcode** with these 135 cells; the 2019-01-24 file on data.matr.io is a
+**truncated download** (h5py reports 572 MB against a stored EOF of 2.60 GB) and cannot
+be opened at all.
+
+---
+
 ## What this does not include
 
 **One measurement per cycle.** Of everything the source structs record per cycle, the
@@ -319,30 +668,35 @@ is_measured_cycle  is_artifact_cycle  is_restart_cycle  is_junction_cycle  is_cl
 
 **These struct fields are *not* in any of the three CSVs:**
 
-| | field | what it is |
-|---|---|---|
-| summary, per cycle | `IR` | internal resistance, Ω |
-| | `QCharge` | charge capacity, Ah |
-| | `Tavg`, `Tmax`, `Tmin` | cell temperature, °C |
-| | `chargetime` | minutes to charge |
-| within-cycle series | `t`, `I`, `V` | time, current (as a C-rate), voltage |
-| | `Qc`, `Qd` | charge / discharge throughput, Ah |
-| | `T` | temperature trace, °C |
-| | `Qdlin`, `Tdlin`, `discharge_dQdV` | the three 1000-point voltage-grid series |
-| the grid itself | `Vdlin` | 1000 points, 3.5 → 2.0 V, identical for every cell |
+| | field | what it is | arrives |
+|---|---|---|---|
+| summary, per cycle | `IR` | internal resistance, Ω | **v0.2.0** |
+| | `QCharge` | charge capacity, Ah | **v0.2.0** |
+| | `Tavg`, `Tmax`, `Tmin` | cell temperature, °C | **v0.2.0** |
+| | `chargetime` | minutes to charge | **v0.2.0** |
+| within-cycle series | `t`, `I`, `V` | time, current (as a C-rate), voltage | v0.3.0 |
+| | `Qc`, `Qd` | charge / discharge throughput, Ah | v0.3.0 |
+| | `T` | temperature trace, °C | v0.3.0 |
+| | `Qdlin`, `Tdlin`, `discharge_dQdV` | the three 1000-point voltage-grid series | v0.3.0 |
+| the grid itself | `Vdlin` | 1000 points, 3.5 → 2.0 V, identical for every cell | v0.3.0 |
 
-So the ΔQ(V) curves the original paper is built on cannot be computed from this loader,
-and neither can anything needing temperature, resistance, charge time or a within-cycle
-trace. `chargetime` is a case worth naming: it was *used* to derive `is_restart_cycle`,
-but the column itself is not carried.
+The six marked **v0.2.0** are available now, from `load_cycle_features()` — they are
+columns of the v1.1 per-cycle index, which is a CSV. Everything marked v0.3.0 is
+HDF5-only. `mc.describe()` prints this list with the counts computed live.
 
-**A later release will read them.** A within-cycle extraction keyed to this same analysis
-set is in progress, and will add the six summary series, the nine within-cycle series and
-the voltage grid. It is **not released**: nothing in this package reads them yet, and
-until it ships the raw `.mat` files are the only source.
+So the ΔQ(V) curves the original paper is built on cannot be computed from the three
+CSVs alone, and nor can anything needing a within-cycle trace. Temperature, resistance
+and charge time no longer belong on that list: `load_cycle_features()` returns them.
+`chargetime` is worth naming — it was *used* to derive `is_restart_cycle`, and as of
+v0.2.0 the column itself is carried too.
+
+**v0.3.0 reads the rest.** The within-cycle extraction adds the nine series and the
+voltage grid as three HDF5 files, behind an optional extra:
+`pip install "matr-clean[series]"`. They are **not released yet** — the Zenodo record is
+still a draft — and until then the raw `.mat` files are the only source for them.
 
 **The raw `.mat` files are not used and not needed.** This loader never opens them, and
-nothing here requires `h5py`. If you do need voltage-domain features before that release,
+v0.2.0 requires no `h5py` at all. If you do need voltage-domain features before that release,
 that is a separate job against the raw files — `exploration/matr.py` in this repository
 reads them lazily — and it starts by downloading ~8 GB from [data.matr.io](https://data.matr.io/1/projects/5c48dd2bc625d700019f3204).
 
@@ -359,9 +713,11 @@ reads `chargetime`, `is_junction_cycle` is proximity to a continuation seam. Non
 looks inside a cycle. So `is_clean_cycle == True` says the cycle's *capacity* is sound; it
 is **not** a warrant that the cycle's voltage, current, temperature or time series are
 usable, and it must not be used as one in voltage-domain or time-series work. A cycle can
-be clean here and still carry a broken trace. The v1.1 extraction adds a separate
-`is_series_valid` for exactly that question, computed from each cycle's own series with no
-rolling window — it is not released yet, and `is_clean_cycle` is not a substitute for it.
+be clean here and still carry a broken trace. Use `is_series_valid` for that question —
+`require_series_valid=True` on `load_cycles`, or `load_cycle_features`, which applies it
+by default. It is computed from each cycle's own series with no rolling window, it fails
+on 249 cycles across 97 cells, and `is_clean_cycle` is not a substitute for it. See
+"Two quality flags, two different questions" above.
 
 **The batches are not exchangeable.** Target medians are 841 / 481 / 1004 cycles, partly
 by design and partly protocol (`REPORT.md` §8). Keep `batch_date` in any model, and do

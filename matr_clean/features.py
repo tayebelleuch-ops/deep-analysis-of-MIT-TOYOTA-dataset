@@ -182,7 +182,12 @@ def _compute_v11_counts(data_dir=None, v11_dir=None) -> Dict[str, Any]:
         how="left",
     )
     m_set = merged["in_analysis_set"].to_numpy(dtype=bool)
-    m_clean = merged[C.CLEAN_FLAG].fillna(False).to_numpy(dtype=bool)
+    # the left merge leaves object dtype with NaN on the beyond_crossing rows;
+    # cast to the nullable boolean before filling, so pandas 2 does not warn about
+    # silently downcasting an object column.
+    m_clean = (
+        merged[C.CLEAN_FLAG].astype("boolean").fillna(False).to_numpy(dtype=bool)
+    )
     m_valid = merged[C.V11_SERIES_FLAG].to_numpy(dtype=bool)
 
     grid = ~index["series_grid_in_range"]

@@ -40,18 +40,30 @@ def test_load_cells_attrs(exploration_dir):
 
 def test_load_cycles_attrs(exploration_dir):
     frame = mc.load_cycles(data_dir=exploration_dir)
-    filters = _check(frame, "load_cycles", {"clean": True, "include_test": False})
+    filters = _check(
+        frame,
+        "load_cycles",
+        {"clean": True, "include_test": False, "require_series_valid": False},
+    )
     assert filters["n_rows_in"] == 113559
     assert any("is_clean_cycle" in line for line in filters["excluded"])
     assert any("fold == -1" in line for line in filters["excluded"])
 
     frame = mc.load_cycles(clean=False, include_test=False, data_dir=exploration_dir)
-    filters = _check(frame, "load_cycles", {"clean": False, "include_test": False})
+    filters = _check(
+        frame,
+        "load_cycles",
+        {"clean": False, "include_test": False, "require_series_valid": False},
+    )
     assert any("fold == -1" in line for line in filters["excluded"])
     assert not any("is_clean_cycle" in line for line in filters["excluded"])
 
     frame = mc.load_cycles(clean=True, include_test=True, data_dir=exploration_dir)
-    filters = _check(frame, "load_cycles", {"clean": True, "include_test": True})
+    filters = _check(
+        frame,
+        "load_cycles",
+        {"clean": True, "include_test": True, "require_series_valid": False},
+    )
     assert not any("fold == -1" in line for line in filters["excluded"])
 
 
