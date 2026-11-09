@@ -190,6 +190,49 @@ def v11_dir(tmp_path, monkeypatch) -> Path:
 
 
 @pytest.fixture
+def v11_series_dir(tmp_path, monkeypatch) -> Path:
+    """The committed within-cycle **series** fixture, with hashes repointed.
+
+    ``tests/fixtures/series/`` holds two tiny HDF5 files and a 12-row index that
+    matches them (see ``tests/fixtures/make_v11_series_fixture.py``). Copying it to
+    a temporary directory and monkeypatching the constants to the fixture's own
+    SHA-256 keeps the whole resolve-and-verify path under test rather than bypassed:
+    a corrupted fixture still raises IntegrityError, and no 2.20 GB of real data is
+    needed to run any of it.
+
+    Pair it with ``exploration_dir`` as ``data_dir=``: the v1.0 CSVs are hash-pinned
+    and committed, so the join that supplies ``is_clean_cycle`` is the real one.
+    """
+    source = Path(__file__).resolve().parent / "fixtures" / "series"
+    target = tmp_path / "v11series"
+    target.mkdir()
+    names = list(constants.V11_REQUIRED_FILES) + [
+        name for name in sorted(constants.V11_H5_FILES.values())
+        if (source / name).is_file()
+    ]
+    for name in names:
+        shutil.copy2(source / name, target / name)
+        monkeypatch.setitem(constants.V11_SHA256, name, _sha256(target / name))
+        monkeypatch.setitem(
+            constants.V11_SIZE_BYTES, name, (target / name).stat().st_size
+        )
+    return target
+
+
+@pytest.fixture
+def series_fixture_rows():
+    """The ``(cell_uid, cycle)`` rows the series fixture covers, and why."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "fixtures"))
+    try:
+        from make_v11_series_fixture import ROWS, NATIVE_SAMPLES
+    finally:
+        sys.path.pop(0)
+    return {"rows": ROWS, "native_samples": NATIVE_SAMPLES}
+
+
+@pytest.fixture
 def fixture_cells() -> tuple:
     """The eight cell_uids the fixture covers."""
     import sys

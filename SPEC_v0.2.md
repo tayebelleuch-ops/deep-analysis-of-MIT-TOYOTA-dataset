@@ -1,5 +1,11 @@
 # matr_clean v0.2 / v0.3 — corrected specification
 
+> **Superseded for v0.3.0.** Sections 3, 5, 6 and 7 of this document are superseded
+> by [`SPEC_v0.3.md`](SPEC_v0.3.md), which re-verified the HDF5 layout and lists 20
+> corrections to what follows. Sections 0-2 describe the CSV half, which shipped as
+> 0.2.2 and is accurate. This file is otherwise left as written, as the record of
+> what was planned before 0.2.2 existed.
+
 **Status: Stage 0 plan. Nothing built, nothing pushed, nothing tagged, nothing uploaded.**
 
 This supersedes DRAFT 0.2. Every count below was re-measured against the real extraction

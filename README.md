@@ -131,7 +131,7 @@ record, including the SHA-256 of every generated file and the fold rule, is in
 | path | contents |
 |---|---|
 | [`exploration/REPORT.md`](exploration/REPORT.md) | **The consolidated audit and cleaning report. Read this first.** |
-| [`USAGE.md`](USAGE.md) | How to import the analysis set with the `matr_clean` loader package (pandas and numpy only, no `h5py`, no raw `.mat` files) |
+| [`USAGE.md`](USAGE.md) | How to import the analysis set with the `matr_clean` loader package (pandas and numpy only; the within-cycle series add an optional `h5py`, and no raw `.mat` file is ever needed) |
 | `exploration/schema.md` | The verified struct schema, string decoding, units |
 | `exploration/step2_findings.md` | All 21 documentation claims, tested, with verdicts and evidence |
 | `exploration/cleaning_plan.md` | One entry per issue: evidence, options, trade-offs, decision |
@@ -281,6 +281,20 @@ deposited on Zenodo as record `23984188`:
 **The record is published and the files are publicly downloadable.** Cite the *version*
 DOI: the concept DOI follows whichever version is latest, so a citation to it can change
 under you.
+
+`matr_clean` reads these files as of **v0.3.0** — `load_series()` for any cells over any
+cycle range, `load_vdlin()` for the voltage grid, `open_batch()` for a read-only
+`h5py.File`. It fetches only the batch file(s) a call needs, verifies each against the
+SHA-256 in `MANIFEST_v1.1.md`, and masks invalid and placeholder cycles in place rather
+than zero-filling them:
+
+```python
+pip install "matr-clean[series]"
+
+import matr_clean as mc
+w = mc.load_series(cycles=range(1, 26))   # (108, 25, 1000) per grid field
+w["valid"]                                 # the mask -- nothing is repaired
+```
 
 Everything needed to rebuild the files from the raw `.mat` inputs is in this repository,
 and [`exploration/MANIFEST_v1.1.md`](exploration/MANIFEST_v1.1.md) carries the SHA-256 of

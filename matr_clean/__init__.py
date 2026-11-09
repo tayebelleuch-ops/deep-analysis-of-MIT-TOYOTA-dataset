@@ -27,11 +27,22 @@ published Zenodo *version* record -- ``constants.V11_ZENODO_DOI``, never the con
 DOI -- and only the files a call actually needs are fetched. Every file is checked
 against its recorded SHA-256 before it is used.
 
-What is **not** here yet: the nine within-cycle series (``t``, ``I``, ``V``, ``T``,
-``Qc``, ``Qd``) and the three interpolated grid curves (``Qdlin``, ``Tdlin``,
-``discharge_dQdV``) with their ``Vdlin`` grid. Those live in 2.2 GB of HDF5 and
-arrive in v0.3.0 behind an optional ``series`` extra. ``mc.describe()`` lists every
-such field and which release carries it.
+As of v0.3.0 the within-cycle series are here too -- the six native (ragged) fields
+``t``, ``I``, ``V``, ``T``, ``Qc``, ``Qd`` and the three interpolated grid curves
+``Qdlin``, ``Tdlin``, ``discharge_dQdV`` on their ``Vdlin`` grid. They live in
+2.20 GB of HDF5, so they need the optional ``series`` extra
+(``pip install 'matr-clean[series]'``, which adds ``h5py``) and only the batch
+file(s) a call needs are fetched::
+
+    >>> s = mc.load_series("EL150800737364", cycles=range(1, 26))
+    >>> s["Qdlin"].shape, s["valid"].sum()      # (1, 25, 1000), the mask
+    >>> vdlin = mc.load_vdlin()                 # the 1000-point grid, as stored
+
+:func:`load_series` is the gateway: any cells, any cycle range, any mix of fields.
+Invalid and placeholder cycles come back **masked, never zero-filled**, gaps in the
+cycle sequence are never closed, and the cycle labels are always returned, so a
+rolling window is a loop over ``cycles=`` and needs no other function.
+``mc.describe()`` lists every field and which release carries it.
 
 ``is_clean_cycle`` is a summary-level flag about capacity and is **not** safe for
 voltage or time-series work. v1.1 adds ``is_series_valid``, computed from each
@@ -81,9 +92,10 @@ from .loaders import (
     load_labels,
     load_trajectories,
 )
+from .series import load_series, load_vdlin, open_batch
 from .splits import Split, cv_splits, split_labels
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
 
 __all__ = [
     "__version__",
@@ -97,6 +109,10 @@ __all__ = [
     "load_cell_features",
     "load_conditioning",
     "v11_counts",
+    # v0.3.0 -- the within-cycle series (needs the 'series' extra)
+    "load_series",
+    "load_vdlin",
+    "open_batch",
     "cv_splits",
     "describe",
     "counts",

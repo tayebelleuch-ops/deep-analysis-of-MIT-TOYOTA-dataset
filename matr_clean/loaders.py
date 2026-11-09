@@ -105,7 +105,8 @@ def _read_csv_with(path, **kwargs):
     ``features.py``.
 
     ``features.py`` passes ``usecols=`` here so that the 72.8 MB v1.1 index is never
-    materialised in full: only the 36 columns the loader exposes are read.
+    materialised in full: only the 29 columns the loader exposes are read, which
+    measures 27 MB in memory and 97 MiB of peak RSS against 306 MiB for all 77.
     """
     try:
         return pd.read_csv(path, **dict(_READ_KWARGS, **kwargs))
@@ -360,7 +361,8 @@ def load_cycles(
     nine within-cycle series (``t``, ``I``, ``V``, ``Qc``, ``Qd``, ``T``, ``Qdlin``,
     ``Tdlin``, ``discharge_dQdV``) and the ``Vdlin`` voltage grid. So voltage-domain
     quantities (``Qdlin``, ``dQdV``, delta-Q) cannot be computed from this loader; they
-    live in the HDF5 files of the v1.1 extraction and arrive in v0.3.0.
+    live in the HDF5 files of the v1.1 extraction and are read by
+    :func:`matr_clean.load_series`.
 
     The six summary series **are** available now, from
     :func:`matr_clean.load_cycle_features`, which reads the v1.1 per-cycle index
@@ -736,10 +738,16 @@ def _describe_v11(say, data_dir, n, v11_dir=None) -> None:
     say("  Of the struct's per-cycle measurements the v1.0 CSVs carry QDischarge")
     say("  alone, as QD_Ah. The six marked v0.2.0 are in the v1.1 per-cycle index")
     say("  and are returned by load_cycle_features(); the nine series and the grid")
-    say("  are HDF5-only and arrive in v0.3.0 behind the optional 'series' extra.")
+    say("  are HDF5-only and are read by load_series(), which needs the optional")
+    say("  'series' extra (pip install 'matr-clean[series]').")
     say()
-    say("Not available from this loader: voltage-domain features (Qdlin, dQdV,")
-    say("delta-Q). They need the three HDF5 files and arrive in v0.3.0.")
+    say("Voltage-domain features (Qdlin, Tdlin, dQ/dV) are available from v0.3.0 on:")
+    say("  load_series(cell, cycles=range(1, 26))  any cells, any cycle range")
+    say("  load_vdlin()                            the 1000-point grid, as stored")
+    say("  open_batch(source_batch_date)            a read-only h5py.File")
+    say("Invalid and placeholder cycles come back masked, never zero-filled, and")
+    say("the cycle labels are always returned. A delta-Q(100-10) helper is not")
+    say("provided: load_series(cell, cycles=[10, 100]) is the whole of it.")
     say()
 
     try:
@@ -771,7 +779,9 @@ def _describe_v11(say, data_dir, n, v11_dir=None) -> None:
         v["v11_invalid_cycles"], v["v11_invalid_cells"], v["v11_cells"]))
     say("  {0:>7,} of those are the grid-range failures (U13), across {1} cells;"
         .format(v["v11_grid_cycles"], v["v11_grid_cells"]))
-    say("          Qdlin there reaches +1,431 and -4,030 Ah on a 1.1 Ah cell.")
+    say("          Qdlin there reaches +1,431 and -4,030 Ah on a 1.1 Ah cell, and")
+    say("          Tdlin reaches 2,089 degC (ch 17 cycle 163, which fails no other")
+    say("          check, so no summary-level flag catches it).")
     say()
     say("is_clean_cycle vs is_series_valid, on the {0:,} analysis-set rows".format(
         v["v11_analysis_cycles"]))

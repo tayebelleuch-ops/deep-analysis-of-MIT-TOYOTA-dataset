@@ -23,8 +23,12 @@ FLOOR = (3, 9)
 
 
 def test_there_are_modules_to_check():
-    assert len(MODULES) >= 6
+    assert len(MODULES) >= 8
     assert (PACKAGE / "features.py") in MODULES
+    # v0.3.0's two modules are picked up by the glob; name them so a rename or a
+    # deletion fails here rather than silently reducing what the floor covers.
+    assert (PACKAGE / "series.py") in MODULES
+    assert (PACKAGE / "_h5.py") in MODULES
 
 
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)

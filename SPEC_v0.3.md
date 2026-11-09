@@ -1,7 +1,12 @@
 # matr_clean v0.3.0 — the HDF5 within-cycle gateway
 
-**Status: plan only. Nothing built, nothing pushed, nothing tagged. `main` is untouched
-at `2d2fae7` (`loader-v0.2.2`); this file is the only change on `loader-v0.3-plan`.**
+**Status: approved and built, except `load_early_window`.** Steps 1–3 of section 8.2
+are implemented on `loader-v0.3`: `matr_clean/_h5.py`, `matr_clean/series.py`
+(`load_series`, `load_vdlin`, `open_batch`), the committed fixture and the tests.
+`load_early_window` is deliberately **not** built and awaits review. `main` is untouched
+at `2d2fae7` (`loader-v0.2.2`); nothing is pushed and nothing is tagged.
+
+**Section 11 records what the build changed about this plan.**
 
 This supersedes **§3, §5, §6 and §7 of `SPEC_v0.2.md`** for everything that touches the
 three HDF5 files. `SPEC_v0.2.md` is not edited: its §0–§2 correctly describe the CSV half,
@@ -915,7 +920,8 @@ proposed here.
 * **The h5py floor below 3.12.1.** Measured, not guessed: no `cp313` wheel exists for h5py
   3.0.0–3.11.0 and they do not build from source in this environment. `>=3.0` stays a
   reasoned claim about the HDF5 features the files use; 3.12.1 is the oldest *run* version
-  (§1.16, §6). A 3.9 or 3.10 interpreter would make h5py 3.1.0 testable; neither exists
+  (§1.16, §6), and the whole suite — 279 fixture tests and 33 integration tests — now
+  passes on it. A 3.9 or 3.10 interpreter would make h5py 3.1.0 testable; neither exists
   here.
 * **Python 3.9 at runtime.** Only `/usr/bin/python3.13` is installed. The floor stays
   statically checked, as it already is.
@@ -923,15 +929,18 @@ proposed here.
   published file sizes, and the §4.3 internet-off behaviour is read off `_locate.py`'s
   tested code paths — not observed in a Kaggle session. The Drive read-bandwidth cost of
   hash verification is **not measured** and is deliberately left unquantified.
-* **Download throughput from Zenodo.** I read the file *listing* only. No file was
-  downloaded, so there is no measured time for 0.58–0.82 GB, and the retry/truncation
-  handling was not exercised against the real record (it is covered by
-  `tests/test_v11_download.py` against stubs).
-* **Whether `is_clean_cycle` stays as it is.** `MANIFEST_v1.1.md` open decision 1 is still
-  open. If the 171 corrections are applied instead, `analysis_set_cycles.csv` changes, its
-  SHA-256 changes, and `constants.SHA256` plus every shipped 0.1.x/0.2.x pin breaks. That is
-  a release-ordering dependency on 0.3.0, not just a data question, and it is unchanged from
-  `SPEC_v0.2.md` §9.
+* ~~**Download throughput from Zenodo.**~~ **Measured at build time; see §11.3.** One
+  batch file (`within_cycle_2017-06-30.h5`, 581,592,476 B) was downloaded from the public
+  record in a fresh venv with a fresh `HOME`: 514.1 s at 1.1 MB/s, SHA-256 and MD5 both
+  matching. The first attempt was cut short and the truncated-transfer guard caught it and
+  retried — the first time that path has run against the real record rather than a stub.
+* ~~**Whether `is_clean_cycle` stays as it is.**~~ **Closed 2026-11-09: the 171 corrections
+  are never applied to any v1.0 file.** Recorded as a closed decision in
+  `exploration/MANIFEST_v1.1.md`. `analysis_set_cycles.csv`, `analysis_set_cells.csv` and
+  `cell_inventory.csv` keep their recorded SHA-256, so the `v1.0` tag and every pinned
+  0.1.x/0.2.x install stay valid, and 0.3.0 carries no release-ordering dependency on it.
+  `is_series_valid` is carried alongside; the proposed-corrections table stays published as
+  evidence, not as a patch to apply.
 * **The `v1.1` merge.** `within-cycle-extraction` is still not a descendant of `main`
   (it branched at `09f1964`), so a merge, not a fast-forward, is needed and `_locate.py`
   is the file that conflicts. Not re-verified in this pass; I did not switch that clone.
@@ -964,3 +973,62 @@ data:
 
 Nothing else is blocking. Both questions have a defensible default already in place, so
 step 1–3 of §8.2 can be built before either is answered.
+
+
+---
+
+## 11. What the build changed about this plan
+
+Written after implementing section 8.2 steps 1–3. Everything else in this document stands
+as approved.
+
+### 11.1 Three deliberate deviations from §2
+
+1. **`load_series` accepts `cell=None` and an `include_test=` argument.** §2.1 made `cell`
+   required. Allowing `None` (every cell the index holds), plus the package-standard
+   `include_test=False`, is a strict superset, and it is what makes a window a one-liner
+   — `mc.load_series(cycles=range(1, 26))` — without a separate wrapper. No approved
+   behaviour changes.
+2. **`is_clean_cycle` comes back as int8, not bool.** The 1,179 `beyond_crossing` cycles
+   and every absent label have no row in `analysis_set_cycles.csv`, so there is no v1.0
+   judgement to report. A fabricated `False` would read as "v1.0 found this cycle dirty".
+   The return uses `-1` for *not judged* — the numpy analogue of the nullable boolean
+   `features.py` already uses for exactly this reason.
+3. **A `max_bytes` ceiling (default 2 GiB) was added**, as §5.2 proposed. A request for
+   every field of every cycle of every cell raises `MemoryError` naming the figure, before
+   any dataset is read.
+
+### 11.2 One bug the fixture caught
+
+`cell=None` first enumerated all 135 cells of `analysis_set_cells.csv` rather than the
+cells the *resolved index* actually holds. On the real three-file dataset the two sets
+coincide, so integration would never have caught it — but a user with **one batch file**
+on disk, which is the entire point of the per-batch download, would have received 135 rows
+of which 89 were entirely absent and silently masked. `cell=None` now means the cells the
+index holds, and a cell named explicitly but absent from it raises rather than coming back
+all-masked.
+
+### 11.3 Measurements the build corrected
+
+| § | planned | measured in the built code |
+|---|---|---|
+| 5.1 | 140 MiB peak RSS for the 25-cycle window | **182 MiB.** The prototype read an 8-column index and no v1.0 CSVs; the real path reads the 29-column cached index *and* the three v1.0 CSVs, which supply `is_clean_cycle` and the canonical cell order. Breakdown: 69 MiB at import, 130 after the v1.0 CSVs, 130 after the index, 182 after the window (payload 38.6 MiB) |
+| 5.2 | read a lean 8 columns into a separate cache | **reuses `features._read_v11`'s 29-column cache.** Measured 97 MiB peak against 86 MiB for a lean read — 11 MiB to avoid holding a second copy of the index when `load_cycle_features` is also called |
+| 5.2 | "4.51 GB" as the all-fields total | the guard reports **6.70 GB** for `cycles=None` over all cells, because a rectangular `(n_cells, n_cycles)` request pads every cell to the longest (2,237). 4.51 GB is the tight, unpadded total; `cycles=None` is a per-cell call and over many cells pays for the padding |
+| 9 | Zenodo download not measured | **581,592,476 B in 514.1 s** (1.1 MB/s, 9.0 Mbit/s), fresh venv, fresh `HOME`. Attempt 1 was truncated — `IncompleteRead(0 bytes read, 1153836 more expected)` — the guard classified it retryable, waited 0.58 s, and attempt 2 succeeded. SHA-256 **and** MD5 match. Only that one file landed in the cache |
+
+### 11.4 Two of this document's corrections are now assertions
+
+`tests/test_v11_series_integration.py` turns §1.12 and §1.13 into tests: the labels 12–13
+cluster is **17 cycles across 16 cells**, and of the six in-window `series_grid_in_range`
+failures exactly **four** carry an out-of-band `Qdlin`. §1.11's 2,089.2 °C `Tdlin_max` is
+asserted too, including that it fails no other component — so no summary-level flag catches
+it.
+
+### 11.5 Still not built, by instruction
+
+`load_early_window` (§2.2). The documented substitute is `cycles=range(1, n + 1)` for the
+label convention and a `groupby.head(n)` over `is_placeholder == False` for the measured
+one; both are written out in `USAGE.md`, with the cost of each convention tabulated. The
+two questions in §10 — which N, and whether cycle 1 matters — are what decide its default,
+and neither is answered yet.

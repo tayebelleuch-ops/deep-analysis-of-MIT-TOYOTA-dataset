@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matr-clean"
-version = "0.2.2"
+version = "0.3.0"
 description = "Import the cleaned MIT-Stanford-TRI battery analysis set with pandas and numpy only"
 readme = "USAGE.md"
 requires-python = ">=3.9"
@@ -26,10 +26,17 @@ dependencies = ["pandas", "numpy"]
 
 [project.optional-dependencies]
 test = ["pytest"]
-# v0.3.0 reads the three HDF5 files of the v1.1 extraction. The floor is 3.0
-# because the files use nothing newer than gzip + shuffle on plain datasets; it is
-# tested, not assumed. v0.2.0 itself never imports h5py -- the per-cycle index it
-# reads is a CSV -- so installing without this extra is the normal case today.
+# load_series / load_vdlin / open_batch read the three HDF5 files of the v1.1
+# extraction. The declared floor is 3.0, because the files use nothing newer than
+# gzip + shuffle on plain contiguous and chunked datasets, all of which h5py 3.0
+# had. The oldest version actually *tested* is 3.12.1: on Python 3.13 no cp313
+# wheel exists for h5py 3.0.0-3.11.0 and they do not build from source, so 3.12.1
+# is the oldest that can be run here. It reads all three published files correctly
+# under HDF5 1.14.4 against files written by HDF5 2.0.0. The floor is kept at 3.0
+# rather than raised to 3.12.1 so a working Python 3.9/3.10 environment -- the
+# reason the 3.9 floor exists -- is not excluded.
+# Nothing outside matr_clean/_h5.py imports h5py, and that import is inside a
+# function, so installing without this extra keeps every v0.2.x entry point working.
 series = ["h5py>=3.0"]
 # For running the exploration/ scripts and the standalone checks in that folder.
 # matplotlib is needed only there: exploration/test_cell_addressing.py imports

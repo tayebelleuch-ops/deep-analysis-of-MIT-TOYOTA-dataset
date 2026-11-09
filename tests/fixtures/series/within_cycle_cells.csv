@@ -1,0 +1,4 @@
+cell_uid,batch_date,channel,n_segments,segments_resolved,n_cycles_total,policy_underscore,policy_readable_as_stored,cycle_life_struct_field
+EL150800460514,2017-05-12,1,2,2017-05-12:ch1:idx0:n1189 | 2017-06-30:ch1:idx7:n662,1851,3_6C-80PER_3_6C | 80PER_3_6C,3.6C(80%)-3.6C | 80%)-3.6C,1190 | 663
+EL150800464865,2017-05-12,6,2,2017-05-12:ch6:idx4:n1226 | 2017-06-30:ch6:idx16:n482,1708,4C-80PER_4C | 80PER_4C,4C(80%)-4C | 80%)-4C,1227 | 483
+EL150800460511,2017-06-30,38,1,2017-06-30:ch38:idx37:n502,502,5_6C_38PER_4_25C,5.6C(38%)-4.25C,478

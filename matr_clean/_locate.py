@@ -813,8 +813,10 @@ def resolve_v11_dir(data_dir=None, names=None) -> Tuple[Path, str]:
     cache, and nothing else -- a clone or a named folder is never written to.
 
     *names* defaults to :data:`constants.V11_REQUIRED_FILES`, the two CSVs v0.2.0
-    reads. v0.3.0 passes the HDF5 filenames it needs instead, one batch at a time,
-    so a user with only one batch on disk is not told the other two are missing.
+    reads. :func:`matr_clean.load_series` passes the HDF5 filenames it needs instead,
+    one or two batches at a time, so a user with only one batch on disk is not told
+    the other two are missing and never fetches 2.20 GB to answer a question about
+    0.58 GB.
     """
     if names is None:
         names = C.V11_REQUIRED_FILES

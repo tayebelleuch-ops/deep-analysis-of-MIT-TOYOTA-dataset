@@ -113,7 +113,11 @@ def test_describe_prints_the_counts(exploration_dir):
     assert "135 physical cells" in text
     assert "113,559 cycles" in text
     assert "What each default excludes" in text
-    assert "voltage-domain features" in text
+    assert "Voltage-domain features" in text
+    # describe() is what a user runs first, so it must name the v0.3.0 entry points
+    for name in ("load_series", "load_vdlin", "open_batch"):
+        assert name in text, name
+    assert "masked, never zero-filled" in text
     assert numbers["n_cells"] == 135
     # nothing printed contradicts the counts it returns
     assert "{0:,}".format(numbers["n_cycles_clean"]) in text

@@ -321,8 +321,8 @@ feats[["cell_uid", "cycle", "IR_ohm", "QCharge_Ah", "Tavg_C", "Tmax_C",
 
 It still needs **only pandas and numpy**. The v1.1 release stores these in
 `within_cycle_index.csv`, a plain CSV, so nothing here imports `h5py`. Only the nine
-within-cycle *series* and the three voltage-grid curves live in HDF5, and those arrive
-in v0.3.0.
+within-cycle *series* and the three voltage-grid curves live in HDF5; `load_series()`
+reads those, and it is the one part of the package that needs the `series` extra.
 
 Pick columns with `variables=`; keys and every quality flag come back regardless.
 
@@ -416,8 +416,7 @@ loads without a line of your code changing.
 
 **Only what you ask for is downloaded.** The two CSVs are 72.9 MB together, and that is
 all the DataFrame loaders need; the three HDF5 files are 2.20 GB and are fetched a
-batch at a time, when something asks for that batch — which nothing does yet, because
-the code that *reads* the HDF5 is still to come. Files land in
+batch at a time, when `load_series` asks for that batch. Files land in
 `~/.cache/matr_clean` (or `$MATR_CLEAN_CACHE_DIR`), are staged through a `.part` file so
 an interrupted download cannot be mistaken for a finished one, and are checked against
 the SHA-256 in `MANIFEST_v1.1.md` before they are used. A file in the cache that fails
@@ -539,11 +538,18 @@ dense = (one_cell.set_index("cycle")
                  .reindex(range(1, int(one_cell["cycle"].max()) + 1)))
 ```
 
-In v0.3.0 the array-returning functions follow the same principle differently: a
-fixed-shape `(n_cells, n_cycles, …)` tensor cannot drop a row, so invalid cycles come
-back **masked** — a boolean `valid` array alongside the data — never interpolated and
-never zero-filled. `clean=` drops rows in DataFrame returns and sets the mask in array
-returns. The data at a masked position is whatever the file holds.
+`load_series()` follows the same principle differently: a fixed-shape
+`(n_cells, n_cycles, …)` tensor cannot drop a row, so invalid cycles come back
+**masked** — a boolean `valid` array alongside the data — never interpolated and never
+zero-filled. `clean=` and `require_series_valid=` set that mask and never change the
+shape; `drop_invalid_cells=True` is the only argument that removes a cell, and it
+reports which ones in `result["filters"]`. The data at a masked position is whatever the
+file holds: NaN for a placeholder row, the real ±1,400 Ah number for an out-of-band one.
+
+`present` is returned alongside `valid` and answers a different question: `present=False`
+means the index has **no such cycle at all**, so a gap in the cycle sequence stays
+distinguishable from a bad measurement. Gaps are never closed — a requested label with
+no row keeps its label and its position.
 
 ---
 
@@ -589,49 +595,143 @@ bad = window[~window["is_series_valid"]]
 print(len(bad), "invalid positions across", bad["cell_uid"].nunique(), "cells")
 ```
 
-### The early-cycle window, in v0.3.0
+### The early-cycle window
 
-`load_early_window(n_cycles=25)` will default to `window="measured"`: the first 25
-cycles with `is_placeholder == False`, so position *k* means the same amount of cycling
-for every cell. For the 46 cells of 2017-05-12 that is labels **2–26**; for the other 89
-it is 1–25. `window="labels"` gives labels 1…N instead, with the placeholder returned
-and masked.
+v0.3.0 ships no dedicated early-window function, and does not need one for this: an
+early window is a cycle range, and `load_series` takes any range.
 
-The return **always** carries the `cycle` label matrix, so which labels you got is never
-ambiguous. That matters because the paper's ΔQ(100−10) feature is **label**-based: for
-label-indexed work use `load_series(cell, cycles=[10, 100])`, where you name the labels,
-not `load_early_window`.
+```python
+# labels 1..25 for every cell -- the simple convention
+w = mc.load_series(cycles=range(1, 26))
+w["Qdlin"].shape          # (108, 25, 1000)
+w["cycle"][0]             # the labels you actually got
+w["valid"].sum()          # how many positions are usable
+```
+
+**Two conventions, and they differ for exactly 46 cells.** `cycles=range(1, 26)` asks
+for *labels* 1–25. For the 46 cells of 2017-05-12, label 1 is the zero-filled
+placeholder, so position 0 of those rows is structurally empty and always masked. The
+alternative is the first 25 **measured** cycles, which for those 46 cells is labels 2–26:
+
+```python
+feats = mc.load_cycle_features(clean=False, require_series_valid=False,
+                               include_test=True)
+first25 = (feats[~feats["is_placeholder"]]
+           .sort_values(["cell_uid", "cycle"])
+           .groupby("cell_uid")["cycle"].head(25))
+w = mc.load_series("EL150800460514",
+                   cycles=first25.loc[feats["cell_uid"] == "EL150800460514"].tolist())
+```
+
+Measured over all 135 cells, the choice costs this much:
+
+| N | convention | masked positions | cells affected | NaN in the array |
+|---|---|---|---|---|
+| 10 | labels | 56 of 1,350 | 47 | 46 rows × 3 fields |
+| 10 | measured | 11 of 1,350 | 2 | **none** |
+| 25 | labels | 93 of 3,375 | 48 | 46 rows × 3 fields |
+| 25 | measured | 48 of 3,375 | 18 | **none** |
+| 50 | labels | 118 of 6,750 | 48 | 46 rows × 3 fields |
+| 50 | measured | 73 of 6,750 | 18 | **none** |
+
+Under the measured convention there is **no NaN in the array at all**, at any of those
+window lengths — the placeholder rows are simply never selected, so there is nothing for
+`np.nan_to_num` to do and nothing it can quietly do wrong. Under the label convention a
+third of the cells carry a guaranteed-empty first position. And note that widening the
+window from 25 to 50 costs nothing: the damage is concentrated at labels 12–13, so the
+same 18 cells are affected either way.
+
+The cost of the measured convention is that the cycle *labels* of those 46 cells shift by
+one, which breaks the paper's ΔQ(100−10) convention — that feature is **label**-based.
+`load_series` always returns the `cycle` matrix so what you got is never ambiguous, and
+for label-indexed work you name the labels outright:
+`mc.load_series(cell, cycles=[10, 100])`.
+
+**What the first 25 cycles actually contain.** Under the label convention, 93 of the
+3,375 positions are series-invalid across 48 of 135 cells:
+
+* **46 placeholders** — label 1 of every 2017-05-12 cell, all-NaN grid rows;
+* **`EL150800453240`: all 25 of its first measured cycles**, inside the cycles 1–53
+  splice run. This cell contributes nothing usable to a 25-cycle model and must be
+  masked wholesale, not averaged in;
+* a cluster at labels **12–13**: 17 invalid cycles across **16** of that batch's 46 cells;
+* **6 positions fail `series_grid_in_range`**, and **four of those six** carry an
+  out-of-band `Qdlin` — up to **+48.8 Ah** (`EL150800464865` label 12), then +45.3
+  (`EL150800464977`), +33.0 (`EL150800463871`) and +31.0 (`EL150800464002`) on a 1.1 Ah
+  cell. The other two (`EL150800460514` label 12, `EL150800737364` label 13) have a
+  physically plausible `Qdlin` and fail the grid check on another channel.
+
+Those four are what wreck a normalization fitted on this window: ~45 Ah against a 1.1 Ah
+nominal, inside the data a model is conditioned on. `is_series_valid` catches all six;
+`is_clean_cycle` does not catch five of them. The ±1,400 Ah and 2,089 °C extremes are all
+**outside** the first 25 cycles — an early-window model is hurt by ~45 Ah, not by ~4,000.
+
+`drop_invalid_cells=True` removes any cell with an invalid row in the range: 18 of 135
+at a 25-cycle measured window, 48 under labels. It is off by default, because trading 18
+cells for 48 of 3,375 positions is rarely the right deal.
 
 ---
 
-## The large files, Colab and Drive (v0.3.0)
+## The large files: Colab, Kaggle and Drive
 
-v0.2.0 downloads nothing new: the per-cycle index is 72.8 MB and the v1.0 CSVs are
-11 MB. v0.3.0 adds **2.20 GB** of HDF5 — three files of 0.6–0.8 GB, one per batch.
+The per-cycle index is 72.8 MB and the v1.0 CSVs are 11 MB. The series add **2.20 GB**
+of HDF5 — three files, one per batch:
 
-**Recommended on Colab: a Drive copy.** A Colab runtime is discarded, so a per-session
-download of 2.3 GB is a recurring cost; Drive is paid once.
+| file | bytes |
+|---|---|
+| `within_cycle_2017-05-12.h5` | 797,659,714 |
+| `within_cycle_2017-06-30.h5` | 581,592,476 |
+| `within_cycle_2018-04-12.h5` | 823,392,641 |
+
+**Only the batch file(s) a call needs are fetched.** `load_series` resolves files from
+each row's `source_batch_date`, so a request restricted to one batch's cells costs
+0.58–0.82 GB, not 2.20 GB. But a request over *all* cells — including the plain
+`mc.load_series(cycles=range(1, 26))` — spans all three files, so that is the 2.20 GB
+case. A cell can span **two** batch files (five do), so a per-batch download is not a
+per-cell partition.
+
+**Recommended on Colab: a Drive copy.** A Colab runtime is discarded and so is
+`~/.cache/matr_clean`, which makes a per-session download a recurring cost — 2.28 GB for
+the all-cells window, 0.65–0.90 GB for one batch, 72.9 MB for the CSV-only functions.
+Drive is paid once.
 
 ```python
 from google.colab import drive
 drive.mount("/content/drive")
 
 import matr_clean as mc
-mc.load_cycle_features(v11_dir="/content/drive/MyDrive/matr/within_cycle")
+w = mc.load_series(cycles=range(1, 26),
+                   v11_dir="/content/drive/MyDrive/matr/within_cycle")
 ```
 
 Keep the files in a plain Drive folder, not a zip: the loader reads them in place and
-never writes to a folder you name. Hashes are verified once per process, which on 2.2 GB
-over Drive takes a few seconds — worth it once per session.
+never writes to a folder you name. Hashes are verified once per process and per file —
+SHA-256 runs at about 1.3 GiB/s, so 1.6 s for all 2.20 GB on local disk; over a mounted
+Drive the cost is the read bandwidth, not the hashing.
 
-**The alternative is a per-batch download.** Only the batches you touch are fetched, so
-a model that uses one batch pays 0.6–0.8 GB rather than 2.3 GB. The download route is
-in place and pinned to the published record; what is still to come is the code that
-*reads* the HDF5, which is why the figures below are the only thing this section can
-quote today.
+**On Kaggle, attach the files as a dataset and pass `v11_dir=`.**
 
-A cell can span **two** batch files (five do), so a per-batch download is not a
-per-cell partition — see the next section.
+```python
+w = mc.load_series(cycles=range(1, 26), v11_dir="/kaggle/input/matr-within-cycle")
+```
+
+The dataset needs `within_cycle_index.csv`, `within_cycle_cells.csv`, the batch `.h5`
+file(s) you use, and the three v1.0 CSVs (`analysis_set_cycles.csv`,
+`analysis_set_cells.csv`, `cell_inventory.csv`) that supply the labels and
+`is_clean_cycle`. `/kaggle/input` is read-only, which is fine: the loader never writes to
+a folder you name.
+
+**With Kaggle's internet switched off, the download route does not exist** — every fetch
+raises `DownloadError` with a message naming `v11_dir=` and `$MATR_CLEAN_DATA_DIR`. That
+is the only difference between an internet-on and an internet-off notebook running the
+same code, and it is why the attached-dataset route is the one to write into a Kaggle
+notebook from the start.
+
+**The per-batch download is the alternative everywhere.** It is pinned to the published
+*version* record (`10.5281/zenodo.23984188`, never the concept DOI), resumes nothing but
+retries what a retry can fix, and catches a truncated transfer by counting bytes against
+`Content-Length` rather than letting a short file surface as a corrupt one — which
+matters a great deal more at 0.8 GB than it did at 72.8 MB.
 
 ---
 
@@ -680,7 +780,8 @@ the grid. Per batch: −36.4 / −49.4 / −27.4 mAh. Do not read `Qdlin[-1]` as
 capacity.
 
 **Only `QDischarge` is in the three v1.0 CSVs.** `IR`, `QCharge`, the temperatures and
-`chargetime` arrive with v0.2.0; the nine series and the grid with v0.3.0.
+`chargetime` arrive with v0.2.0 (`load_cycle_features`); the nine series and the grid
+with v0.3.0 (`load_series`), which needs the `series` extra.
 
 **Other MATR batches are out of scope.** 2018-02-20 and 2018-04-03 are readable and
 share **no barcode** with these 135 cells; the 2019-01-24 file on data.matr.io is a
@@ -709,15 +810,17 @@ is_measured_cycle  is_artifact_cycle  is_restart_cycle  is_junction_cycle  is_cl
 | | `QCharge` | charge capacity, Ah | **v0.2.0** |
 | | `Tavg`, `Tmax`, `Tmin` | cell temperature, °C | **v0.2.0** |
 | | `chargetime` | minutes to charge | **v0.2.0** |
-| within-cycle series | `t`, `I`, `V` | time, current (as a C-rate), voltage | v0.3.0 |
-| | `Qc`, `Qd` | charge / discharge throughput, Ah | v0.3.0 |
-| | `T` | temperature trace, °C | v0.3.0 |
-| | `Qdlin`, `Tdlin`, `discharge_dQdV` | the three 1000-point voltage-grid series | v0.3.0 |
-| the grid itself | `Vdlin` | 1000 points, 3.5 → 2.0 V, identical for every cell | v0.3.0 |
+| within-cycle series | `t`, `I`, `V` | time, current (as a C-rate), voltage | **v0.3.0** |
+| | `Qc`, `Qd` | charge / discharge throughput, Ah | **v0.3.0** |
+| | `T` | temperature trace, °C | **v0.3.0** |
+| | `Qdlin`, `Tdlin`, `discharge_dQdV` | the three 1000-point voltage-grid series | **v0.3.0** |
+| the grid itself | `Vdlin` | 1000 points, 3.5 → 2.0 V, identical for every cell | **v0.3.0** |
 
-The six marked **v0.2.0** are available now, from `load_cycle_features()` — they are
-columns of the v1.1 per-cycle index, which is a CSV. Everything marked v0.3.0 is
-HDF5-only. `mc.describe()` prints this list with the counts computed live.
+All of them are available. The six marked **v0.2.0** come from `load_cycle_features()` —
+they are columns of the v1.1 per-cycle index, which is a CSV. The ten marked **v0.3.0**
+are HDF5-only and come from `load_series()` and `load_vdlin()`, which need
+`pip install "matr-clean[series]"`. `mc.describe()` prints this list with the counts
+computed live.
 
 So the ΔQ(V) curves the original paper is built on cannot be computed from the three
 CSVs alone, and nor can anything needing a within-cycle trace. Temperature, resistance
@@ -726,11 +829,21 @@ and charge time no longer belong on that list: `load_cycle_features()` returns t
 v0.2.0 the column itself is carried too.
 
 **v0.3.0 reads the rest.** The within-cycle extraction adds the nine series and the
-voltage grid as three HDF5 files, behind an optional extra:
-`pip install "matr-clean[series]"`. The files themselves are published (DOI
-`10.5281/zenodo.23984188`) and the loader can already download them; what is not here
-yet is the code that reads them, so until that lands the raw `.mat` files remain the
-only route to the series.
+voltage grid as three HDF5 files, published under DOI `10.5281/zenodo.23984188`, and
+`load_series()` reads them behind an optional extra:
+`pip install "matr-clean[series]"`. So the ΔQ(V) curves the original paper is built on
+*can* now be computed from this loader, and the raw `.mat` files are no longer the only
+route to a within-cycle trace:
+
+```python
+w = mc.load_series("EL150800460486", cycles=[10, 100], fields=("Qdlin",))
+dq = w["Qdlin"][0, 1] - w["Qdlin"][0, 0]      # delta-Q(100-10) on the Vdlin grid
+assert w["valid"][0].all()                     # check before you trust it
+```
+
+No ΔQ helper is provided, deliberately: the two-line form above is clearer than a
+function that hides which labels it used, and `w["valid"]` is the part you must not
+skip.
 
 **The raw `.mat` files are not used and not needed.** This loader never opens them, and
 v0.2.0 requires no `h5py` at all. If you do need voltage-domain features before that release,

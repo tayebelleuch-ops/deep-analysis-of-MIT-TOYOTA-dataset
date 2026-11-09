@@ -348,8 +348,21 @@ V11_CELL_COLUMNS = (
 #: **not applied** to any v1.0 file and the v1.0 hashes above stay pinned.
 V11_SERIES_FLAG = "is_series_valid"
 
+#: The four per-cell quality flags :func:`matr_clean.load_series` returns aligned to
+#: ``cell_uid``, all read from ``analysis_set_cells.csv`` and returned **as stored**.
+#: They are per-cell judgements and are deliberately not folded into the per-cycle
+#: mask: a thermocouple fault is a reason to distrust a cell's temperature, not a
+#: reason to drop its voltage.
+V11_CELL_FLAGS = (
+    "is_continuation",
+    "has_eol_label",
+    "thermocouple_fault",
+    "exclude_from_deltaq_features",
+)
+
 #: The three interpolated grid fields, on the :data:`V11_VDLIN_POINTS`-point grid.
-#: Read by v0.3.0; named here so ``describe()`` can say what is still missing.
+#: Read by :func:`matr_clean.load_series`; ``discharge_dQdV`` is the dataset's own
+#: name -- ``dQdV`` is an index column name and is not a field.
 V11_GRID_FIELDS = ("Qdlin", "Tdlin", "discharge_dQdV")
 
 #: The six native (ragged) within-cycle series, plus the time base.

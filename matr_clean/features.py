@@ -15,7 +15,8 @@ Three entry points, all pandas and numpy only:
 a 114,738 x 77 CSV, and ``within_cycle_cells.csv``. Neither is an HDF5 file, which
 is why v0.2.0 needs no ``h5py``: the six summary series and all nine validity flags
 are columns of the index. Only the within-cycle *series themselves* -- the nine
-arrays and the ``Vdlin`` grid -- live in HDF5, and those arrive with v0.3.0.
+arrays and the ``Vdlin`` grid -- live in HDF5, and those are read by
+:func:`matr_clean.load_series` (v0.3.0, optional ``series`` extra).
 
 The index is read with ``usecols``, so the 36 columns these functions expose cost
 about 26 MB in memory rather than the file's full 72 MB. The other ~41 columns are
@@ -327,7 +328,7 @@ def load_cycle_features(
 
     What is still not here: the nine within-cycle series and the three interpolated
     grid curves (``Qdlin``, ``Tdlin``, ``discharge_dQdV``). They are HDF5-only and
-    arrive in v0.3.0.
+    are read by :func:`matr_clean.load_series`.
     """
     from .loaders import _read, _stamp
 
@@ -531,9 +532,10 @@ def load_conditioning(
     """Return per-cell conditioning variables as arrays aligned to ``cell_uid``.
 
     For a conditional generative model over SOH curves: the charging policy as a
-    numeric matrix, plus the batch each cell belongs to, with a row order that
-    v0.3.0's ``load_early_window`` will reproduce exactly so the two can be used
-    together without a join.
+    numeric matrix, plus the batch each cell belongs to, with a row order
+    :func:`matr_clean.load_series` reproduces exactly -- ``analysis_set_cells.csv``'s
+    own, ascending ``batch_date`` then ``channel`` -- so the two can be used together
+    without a join. ``tests/test_v11_series.py`` asserts the two agree element-wise.
 
     This reads ``analysis_set_cells.csv`` only, so it works before any v1.1 file is
     present -- unless ``include_cycle_counts=True``, which needs the index.

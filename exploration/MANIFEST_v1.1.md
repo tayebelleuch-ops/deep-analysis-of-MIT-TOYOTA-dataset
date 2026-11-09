@@ -245,13 +245,18 @@ this repository's MIT licence** — the same scope rule `NOTICE.md` applies to
 
 ## Open decisions
 
-1. **`is_clean_cycle`** — add `is_series_valid` alongside (recommended), or apply the 171
-   corrections in `tables/v11_proposed_clean_cycle_corrections.csv`. See
-   `REPORT_v1.1.md` §7.1.
-2. **The §7.2–7.5 document corrections** — accept, reject, or amend each.
+1. **The §7.2–7.5 document corrections** — accept, reject, or amend each.
 
-Two decisions listed here earlier are **settled**, and are left named rather than deleted
+Three decisions listed here earlier are **settled**, and are left named rather than deleted
 so the record of what was decided stays legible:
+
+0. ~~**`is_clean_cycle`** — add `is_series_valid` alongside, or apply the 171 corrections.~~
+   **Closed 2026-11-09: the 171 corrections in
+   `tables/v11_proposed_clean_cycle_corrections.csv` are never applied to any v1.0 file.**
+   `is_series_valid` is carried alongside `is_clean_cycle`; `analysis_set_cycles.csv`,
+   `analysis_set_cells.csv` and `cell_inventory.csv` keep the SHA-256 values recorded
+   above, so the `v1.0` tag and every pinned loader install stay valid. The table remains
+   published as evidence of the disagreement, not as a patch to apply.
 
 3. ~~**Tag name** — `v1.1` is proposed and **not created**.~~ Created and pushed; see
    "The steps this record went through" above.

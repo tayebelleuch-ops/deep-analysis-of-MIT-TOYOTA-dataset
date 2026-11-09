@@ -10,6 +10,12 @@ dataset batteries/
 *.h5
 *.hdf5
 
+# The one deliberate exception: the committed within-cycle series test fixture,
+# two HDF5 files of ~165 KB that tests/fixtures/make_v11_series_fixture.py
+# regenerates byte-identically from the published data. Scoped to that one
+# directory so the rule above keeps protecting everything else.
+!tests/fixtures/series/*.h5
+
 # ---- external datasets fetched on demand ----
 Degradation_Prediction_Dataset_ISEA.mat
 
