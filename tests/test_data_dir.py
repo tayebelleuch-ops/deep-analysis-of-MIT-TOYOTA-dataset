@@ -228,10 +228,18 @@ def test_download_populates_the_cache(good_copy, monkeypatch):
 
 
 def test_a_corrupt_download_is_deleted_and_raises(good_copy, monkeypatch, tmp_path):
+    """Wrong bytes, right length: the one shape that is a genuine hash mismatch.
+
+    A *short* body is a cut transfer and is retried instead -- see
+    tests/test_download_retry.py. So the fake here keeps the published byte count
+    and changes one byte, rather than serving a stub file.
+    """
     monkeypatch.setattr(_locate, "_repo_exploration_dirs", lambda: [])
 
-    truncated = tmp_path / "truncated.csv"
-    truncated.write_bytes(b"cell_uid,barcode\nx,y\n")
+    corrupted = tmp_path / "corrupted.csv"
+    data = bytearray((good_copy / C.CYCLES_FILE).read_bytes())
+    data[-2] = ord("9") if data[-2] != ord("9") else ord("8")
+    corrupted.write_bytes(bytes(data))
 
     class FakeResponse:
         def __init__(self, path):
@@ -250,7 +258,7 @@ def test_a_corrupt_download_is_deleted_and_raises(good_copy, monkeypatch, tmp_pa
     def fake_urlopen(url, timeout=None):
         name = url.rsplit("/", 1)[-1]
         if name == C.CYCLES_FILE:
-            return FakeResponse(truncated)
+            return FakeResponse(corrupted)
         return FakeResponse(good_copy / name)
 
     monkeypatch.setattr(_locate.urllib.request, "urlopen", fake_urlopen)

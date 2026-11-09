@@ -17,6 +17,9 @@ Degradation_Prediction_Dataset_ISEA.mat
 __pycache__/
 *.py[cod]
 *.egg-info/
+# setuptools leaves these behind when the package is pip-installed from a clone
+build/
+dist/
 .venv
 .venv/
 venv/

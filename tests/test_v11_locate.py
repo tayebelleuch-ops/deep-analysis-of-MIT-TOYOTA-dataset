@@ -1,4 +1,9 @@
-"""Finding the v1.1 files, and the one error raised while Zenodo is a draft."""
+"""Finding the v1.1 files, and the Zenodo record they are downloaded from.
+
+The download route itself -- retries, the cache, the error paths -- is
+``tests/test_v11_download.py``. What is here is the lookup order, the integrity
+rule, and the constants the record is pinned by.
+"""
 
 from __future__ import annotations
 
@@ -15,16 +20,55 @@ from matr_clean import constants as C
 # the Zenodo placeholders
 # ---------------------------------------------------------------------------
 
-def test_the_record_is_not_published():
-    """Guards against someone filling one placeholder and forgetting the rest."""
-    assert C.V11_ZENODO_DOI is None
-    assert C.V11_ZENODO_RECORD_ID is None
-    assert C.V11_ZENODO_BASE is None
-    assert C.V11_DATA_TAG is None
-    assert C.v11_is_published() is False
+def test_the_record_is_published_and_the_values_agree():
+    """Guards against someone filling one value and forgetting the rest.
+
+    Every one of these came out of the record's files API listing on 2026-11-09;
+    what the test checks is that they still describe *one* record, so a half-edited
+    block cannot ship.
+    """
+    assert C.v11_is_published() is True
+    assert C.V11_ZENODO_RECORD_ID == 23984188
+    assert C.V11_ZENODO_DOI == "10.5281/zenodo.{0}".format(C.V11_ZENODO_RECORD_ID)
+    assert str(C.V11_ZENODO_RECORD_ID) in C.V11_ZENODO_BASE
+    assert str(C.V11_ZENODO_RECORD_ID) in C.V11_ZENODO_RECORD_URL
+    assert C.V11_DATA_TAG == "v1.1"
+    assert C.V11_ZENODO_VERSION_LABEL == "1.1.0"
 
 
-def test_unpublished_names_both_routes_that_work(no_local_v11):
+def test_the_version_doi_is_pinned_and_the_concept_doi_is_not_used():
+    """A concept DOI resolves to "latest", so pinning it would let a future
+    version of the record silently change what this package loads."""
+    assert C.V11_ZENODO_CONCEPT_DOI == "10.5281/zenodo.23984187"
+    assert C.V11_ZENODO_DOI != C.V11_ZENODO_CONCEPT_DOI
+    concept = C.V11_ZENODO_CONCEPT_DOI.rsplit(".", 1)[-1]
+    for name in C.V11_SHA256:
+        url = C.v11_url_for(name)
+        assert concept not in url
+        assert str(C.V11_ZENODO_RECORD_ID) in url
+
+
+def test_every_url_is_the_content_link_the_api_listing_gives():
+    """``{base}/{name}`` is that file's JSON metadata; ``.../content`` is the file.
+    Getting this wrong downloads a few hundred bytes of JSON and fails the hash,
+    which is a confusing way to learn it."""
+    for name in C.V11_SHA256:
+        url = C.v11_url_for(name)
+        assert url == "{0}/{1}/content".format(C.V11_ZENODO_BASE, name)
+        assert url.startswith("https://")
+
+
+def test_the_record_can_be_blanked_and_the_package_still_works(record_blanked,
+                                                               exploration_dir,
+                                                               v11_dir):
+    """The pre-publication behaviour is a function of the constants, not of a
+    separate code path -- which is what makes filling them in a one-file change."""
+    frame = mc.load_cycle_features(data_dir=exploration_dir, v11_dir=v11_dir)
+    assert len(frame) > 0
+    assert frame.attrs["filters"]["v11_published"] is False
+
+
+def test_unpublished_names_both_routes_that_work(record_blanked, no_local_v11):
     with pytest.raises(mc.DataDirError) as excinfo:
         _locate.resolve_v11_dir(None)
     message = str(excinfo.value)
@@ -55,10 +99,10 @@ def test_local_data_in_the_clone_is_found_and_beats_the_unpublished_error(
     """The other half of the same behaviour, which no test covered before.
 
     With v1.1 files reachable through step 4 of the lookup order, resolution must
-    succeed rather than raise "not yet published" -- the record being a draft says
-    nothing about what is on disk. This is what fails if ``_repo_v11_dirs`` is ever
-    narrowed, and it is why the two tests above have to opt out of the clone lookup
-    explicitly instead of assuming an empty checkout.
+    use them rather than reach step 5 -- a clone that already holds the files must
+    never pay for a 72.8 MB download. This is what fails if ``_repo_v11_dirs`` is
+    ever narrowed, and it is why the tests that want step 5 have to opt out of the
+    clone lookup explicitly instead of assuming an empty checkout.
     """
     monkeypatch.setattr(
         _locate, "_repo_v11_dirs", lambda names: [v11_dir], raising=False
@@ -71,7 +115,7 @@ def test_local_data_in_the_clone_is_found_and_beats_the_unpublished_error(
     assert len(frame) > 0
 
 
-def test_no_url_is_invented_while_unpublished():
+def test_no_url_is_invented_while_unpublished(record_blanked):
     with pytest.raises(RuntimeError) as excinfo:
         C.v11_url_for(C.V11_INDEX_FILE)
     assert "not published" in str(excinfo.value)
@@ -82,7 +126,8 @@ def test_url_for_rejects_a_file_that_is_not_in_the_record():
         C.v11_url_for("analysis_set_cycles.csv")
 
 
-def test_unpublished_never_touches_the_network(monkeypatch, no_local_v11):
+def test_unpublished_never_touches_the_network(monkeypatch, record_blanked,
+                                               no_local_v11):
     """The error is raised before any socket call, not after a failed one."""
     import urllib.request
 
@@ -145,7 +190,7 @@ def test_v11_dir_argument_wins(exploration_dir, v11_dir):
     out = mc.load_cycle_features(data_dir=exploration_dir, v11_dir=v11_dir)
     assert out.attrs["filters"]["v11_data_dir"] == str(v11_dir)
     assert out.attrs["filters"]["v11_data_source"] == "data_dir= argument"
-    assert out.attrs["filters"]["v11_published"] is False
+    assert out.attrs["filters"]["v11_published"] is True
 
 
 def test_env_var_is_honoured(v11_dir, monkeypatch):

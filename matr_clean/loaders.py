@@ -749,8 +749,14 @@ def _describe_v11(say, data_dir, n, v11_dir=None) -> None:
         say("  {0}".format(str(exc).splitlines()[0]))
         say("  load_cycle_features(), load_cell_features() and")
         say("  load_cycles(require_series_valid=True) need it; everything else does")
-        say("  not. Point data_dir= or ${0} at a directory holding {1}.".format(
+        say("  not. Point data_dir= or ${0} at a directory holding {1},".format(
             C.DATA_DIR_ENV, " and ".join(C.V11_REQUIRED_FILES)))
+        if C.v11_is_published():
+            megabytes = sum(
+                C.V11_SIZE_BYTES[name] for name in C.V11_REQUIRED_FILES
+            ) / 1e6
+            say("  or let it download them once ({0:.1f} MB) from DOI {1}.".format(
+                megabytes, C.V11_ZENODO_DOI))
         return
 
     say("v1.1 per-cycle index ({0} columns; {1} read)".format(
@@ -800,6 +806,10 @@ def _describe_v11(say, data_dir, n, v11_dir=None) -> None:
     say()
     say("Dropped cycles leave gaps in the cycle sequence. The loader never fills,")
     say("interpolates, pads or renumbers them; df.attrs['filters'] counts each")
-    say("reason. v1.1 data: {0}".format(
-        "published" if C.v11_is_published() else "Zenodo record not yet published"
-        " (local data_dir only)"))
+    if C.v11_is_published():
+        v11_state = "Zenodo DOI {0}, downloaded on demand into {1}".format(
+            C.V11_ZENODO_DOI, C.cache_dir()
+        )
+    else:
+        v11_state = "no Zenodo record in this build (local data_dir only)"
+    say("reason. v1.1 data: {0}".format(v11_state))

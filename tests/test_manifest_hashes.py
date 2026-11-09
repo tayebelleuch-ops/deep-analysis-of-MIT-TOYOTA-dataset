@@ -169,10 +169,57 @@ def test_the_v11_hash_table_covers_what_exists_and_says_what_it_does_not():
         assert name not in C.V11_ALL_DATA_FILES
 
 
-def test_no_v11_url_is_pinned_while_the_record_is_a_draft():
-    assert C.V11_ZENODO_BASE is None
-    assert C.V11_DATA_TAG is None
-    assert C.v11_is_published() is False
+def test_the_v11_urls_are_pinned_to_one_version_of_the_record():
+    """The v1.0 counterpart above pins a git tag; this pins a Zenodo version.
+
+    Both say the same thing: a download must not be able to return different bytes
+    later. For Zenodo that means the version record, never the concept record and
+    never ``/latest``.
+    """
+    assert C.v11_is_published() is True
+    assert C.V11_DATA_TAG == "v1.1"
+    for name in C.V11_SHA256:
+        url = C.v11_url_for(name)
+        assert url.startswith("https://zenodo.org/api/records/23984188/files/")
+        assert url.endswith("/content")
+        assert "/latest" not in url
+        assert "23984187" not in url          # the concept record
+
+
+def test_the_md5_table_covers_the_same_five_files(repo_root):
+    """Zenodo publishes MD5 only, so it is the checksum a reader can compare
+    against the record page. It must not drift out of step with the SHA-256
+    table, and it must name no file the loader does not know."""
+    assert set(C.V11_ZENODO_MD5) == set(C.V11_SHA256)
+    for name, value in C.V11_ZENODO_MD5.items():
+        assert re.match(r"^[0-9a-f]{32}$", value), name
+
+
+def test_the_md5_table_matches_the_files_in_this_clone(repo_root):
+    """The cross-check that proves the uploaded bytes are the extraction's own.
+
+    Skips the three .h5 files unless they are present: they are 2.20 GB and
+    exploration/extract_out/ is gitignored, so a fresh clone has neither.
+    """
+    import pytest
+
+    extract_out = repo_root / "exploration" / "extract_out"
+    checked = 0
+    for name, expected in sorted(C.V11_ZENODO_MD5.items()):
+        path = extract_out / name
+        if not path.is_file():
+            continue
+        digest = hashlib.md5()
+        with open(str(path), "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+        assert digest.hexdigest() == expected, name
+        checked += 1
+    if checked == 0:
+        pytest.skip(
+            "exploration/extract_out/ holds none of the v1.1 outputs; they are "
+            "gitignored and rebuilt by exploration/extract_within_cycle.py"
+        )
 
 
 def test_the_v1_0_hashes_are_unchanged_by_v0_2_0():

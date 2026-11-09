@@ -181,6 +181,34 @@ assets carry no DOI and are silently replaceable.
 The version DOI is the one to cite and the one any loader should pin: a concept DOI
 resolves to "latest", which would silently change what a pinned download returns.
 
+#### The files, as the record serves them
+
+Read from `GET https://zenodo.org/api/records/23984188/files` on 2026-11-09 and
+cross-checked against `exploration/extract_out/` the same day: every size and every MD5
+below is the local file's. Zenodo publishes **MD5 only**, so this table is what a reader
+can compare against the record page without downloading; the SHA-256 above stays the
+check any loader should make.
+
+| file | bytes | MD5 (Zenodo) |
+|---|---|---|
+| `within_cycle_2017-05-12.h5` | 797,659,714 | `139cd63ebae1f8c7939dfc205e60932b` |
+| `within_cycle_2017-06-30.h5` | 581,592,476 | `667b381648fa7ac4ea9f17c6c76f98a9` |
+| `within_cycle_2018-04-12.h5` | 823,392,641 | `995124d8268c80f476a2d19ce29cb067` |
+| `within_cycle_index.csv` | 72,846,386 | `a6bbaea97eedd3f0a1158dc49e75e771` |
+| `within_cycle_cells.csv` | 14,379 | `97df74cb201efc8efda7da5dc6925560` |
+| `SHA256SUMS.txt` | 646 | `df49c22c7560dcb9e2ec9b66b3e0891a` |
+| `EXTRACTION.md` | 14,271 | `6dbcf377f8784fc5484096850eafdf1b` |
+| `LICENSE.txt` | 2,001 | `aa62009f8d87e8a6f4516ad86063a6c4` |
+
+Eight files; the five data files above carry a published SHA-256 and four of them are
+ever loaded. The uploaded `SHA256SUMS.txt` is byte-identical to
+`exploration/extract_out/SHA256SUMS.txt`.
+
+A file's **bytes** are served from `…/api/records/23984188/files/<name>/content` — the
+listing's `links.content`. `…/files/<name>` without that suffix returns the file's JSON
+metadata, which is why a loader should take the URL from the listing rather than build
+it from a pattern.
+
 **Publishing was a one-way step** — a published Zenodo record cannot be deleted or edited,
 only superseded — and it has been taken. Both DOIs above are live and citable. A
 correction to the *data* would have to be a new version of the record, not an edit to this
@@ -221,5 +249,11 @@ this repository's MIT licence** — the same scope rule `NOTICE.md` applies to
    corrections in `tables/v11_proposed_clean_cycle_corrections.csv`. See
    `REPORT_v1.1.md` §7.1.
 2. **The §7.2–7.5 document corrections** — accept, reject, or amend each.
-3. **Tag name** — `v1.1` is proposed and **not created**.
-4. **Zenodo** — approve the sandbox rehearsal, then the real deposit.
+
+Two decisions listed here earlier are **settled**, and are left named rather than deleted
+so the record of what was decided stays legible:
+
+3. ~~**Tag name** — `v1.1` is proposed and **not created**.~~ Created and pushed; see
+   "The steps this record went through" above.
+4. ~~**Zenodo** — approve the sandbox rehearsal, then the real deposit.~~ Both done; the
+   record was published on 2026-11-05 and is no longer editable.

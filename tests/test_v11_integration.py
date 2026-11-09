@@ -374,7 +374,8 @@ def test_describe_runs_against_the_real_index(real_v11_dir, exploration_dir,
     for name in C.V11_GRID_FIELDS:
         assert name in printed
     assert "v0.3.0" in printed
-    assert "not yet published" in printed
+    assert C.V11_ZENODO_DOI in printed
+    assert "not yet published" not in printed
 
 
 # ---------------------------------------------------------------------------

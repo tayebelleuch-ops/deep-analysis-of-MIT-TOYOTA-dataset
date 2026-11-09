@@ -48,3 +48,8 @@ packages = ["matr_clean"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Opt-in only: the suite is offline by default (tests/conftest.py replaces urlopen
+# with one that raises). A marked test is skipped unless MATR_CLEAN_TEST_NETWORK=1.
+markers = [
+    "network: fetches from the published Zenodo record; needs MATR_CLEAN_TEST_NETWORK=1",
+]

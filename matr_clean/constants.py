@@ -124,30 +124,45 @@ def url_for(filename: str) -> str:
 # ---------------------------------------------------------------------------
 # The Zenodo record -- THE ONLY PLACE ANYTHING ZENODO-DEPENDENT LIVES
 # ---------------------------------------------------------------------------
-# The deposit exists as a DRAFT and is not published, so the DOI, the record id
-# and the file URLs are not knowable yet. While these are ``None``:
+# The record was published on 2026-11-05. Every value below was read out of the
+# record's own files API listing (``GET /api/records/23984188/files``) on
+# 2026-11-09 and cross-checked against the local extraction outputs -- none of it
+# is a URL pattern typed from memory, because Zenodo serves a file's *bytes* and
+# a file's *metadata* from two different paths and only the listing says which is
+# which. A published record cannot be edited or deleted, only superseded, so
+# these values are stable for as long as the record exists.
 #
-#   * data_dir=, set_data_dir(), $MATR_CLEAN_DATA_DIR and a clone all work fully;
-#   * any path that would download raises DataDirError with one clear message.
-#
-# To fill them after publication: set the three values below and V11_DATA_TAG from
-# the minted record, add the three hashes noted under V11_SHA256, and change
-# nothing else -- no other module mentions Zenodo.
+# Set to ``None`` again (all of V11_ZENODO_BASE / V11_ZENODO_RECORD_ID) and the
+# package falls back to its pre-publication behaviour: data_dir=, set_data_dir(),
+# $MATR_CLEAN_DATA_DIR and a clone keep working, and every download path raises
+# DataDirError with one clear message before any socket call.
 
-#: TODO after publication, e.g. "10.5281/zenodo.XXXXXXX" (the *version* DOI, never
-#: the concept DOI: a concept DOI resolves to "latest", which would silently change
-#: what this package loads).
-V11_ZENODO_DOI = None
+#: The *version* DOI, never the concept DOI: a concept DOI resolves to whichever
+#: version is latest, which would silently change what this package loads.
+V11_ZENODO_DOI = "10.5281/zenodo.23984188"
 
-#: TODO after publication: the numeric record id of the published version.
-V11_ZENODO_RECORD_ID = None
+#: The concept DOI, recorded so a caller can read it off the package. Nothing in
+#: the loader resolves it, for the reason given above.
+V11_ZENODO_CONCEPT_DOI = "10.5281/zenodo.23984187"
 
-#: TODO after publication: "https://zenodo.org/records/{record_id}/files".
-V11_ZENODO_BASE = None
+#: The numeric record id of the published version.
+V11_ZENODO_RECORD_ID = 23984188
 
-#: TODO after publication: the git tag the record corresponds to. ``v1.1`` is
-#: proposed in MANIFEST_v1.1.md and is **not** created.
-V11_DATA_TAG = None
+#: The record's files endpoint, exactly as the API reports its own ``links.self``.
+#: A file's bytes are at ``{base}/{filename}/content`` (the listing's
+#: ``links.content``), which is what :func:`v11_url_for` builds; ``{base}/{filename}``
+#: without that suffix returns the file's JSON metadata, not the file.
+V11_ZENODO_BASE = "https://zenodo.org/api/records/23984188/files"
+
+#: The human-readable record page (the API's ``links.self_html``). Used only in
+#: error messages, where someone is being asked to fetch a file by hand.
+V11_ZENODO_RECORD_URL = "https://zenodo.org/records/23984188"
+
+#: Zenodo's own version label for this record, as distinct from the git tag.
+V11_ZENODO_VERSION_LABEL = "1.1.0"
+
+#: The git tag the record corresponds to.
+V11_DATA_TAG = "v1.1"
 
 # ---------------------------------------------------------------------------
 # Filenames
@@ -183,15 +198,17 @@ V11_ALL_DATA_FILES = V11_REQUIRED_FILES + tuple(
 # SHA-256 and sizes, from MANIFEST_v1.1.md
 # ---------------------------------------------------------------------------
 # These five are final: the extraction is byte-reproducible, so a correctly
-# regenerated file hashes to the same value. They are pinned now, before
-# publication, because they do not depend on the record.
+# regenerated file hashes to the same value. They were pinned before the record
+# was published, because they do not depend on it -- and they are what the loader
+# verifies, whether a file came from a clone, a folder or the Zenodo download.
 #
-# The published record carries three further files that nothing hashes today and
-# that this package never reads: SHA256SUMS.txt, EXTRACTION.md and LICENSE.txt.
+# The published record carries three further files that no SHA-256 covers and that
+# this package never reads: SHA256SUMS.txt, EXTRACTION.md and LICENSE.txt.
 # SHA256SUMS.txt itself covers six files, of which five are published -- it also
 # hashes within_cycle_index_raw.csv, the pre-flag intermediate, which is
-# deliberately not uploaded. So of the record's 8 files, 5 have published hashes
-# and 4 are ever loaded.
+# deliberately not uploaded. So of the record's 8 files, 5 have published SHA-256
+# and 4 are ever loaded. (Zenodo reports an MD5 for all 8; the five that matter
+# are in V11_ZENODO_MD5 below.)
 
 V11_SHA256 = {
     "within_cycle_2017-05-12.h5": (
@@ -217,6 +234,20 @@ V11_SIZE_BYTES = {
     "within_cycle_2018-04-12.h5": 823392641,
     V11_INDEX_FILE: 72846386,
     V11_CELLS_FILE: 14379,
+}
+
+#: MD5 of the same five files, as the Zenodo files API reports them. Recorded
+#: because MD5 is the *only* checksum Zenodo publishes, so it is what a reader can
+#: compare against the record page without downloading anything, and it is the
+#: cross-check that proves the uploaded bytes are the extraction's own: all five
+#: were verified against exploration/extract_out/ on 2026-11-09. The loader itself
+#: verifies SHA-256 and never MD5 -- these are provenance, not a code path.
+V11_ZENODO_MD5 = {
+    "within_cycle_2017-05-12.h5": "139cd63ebae1f8c7939dfc205e60932b",
+    "within_cycle_2017-06-30.h5": "667b381648fa7ac4ea9f17c6c76f98a9",
+    "within_cycle_2018-04-12.h5": "995124d8268c80f476a2d19ce29cb067",
+    V11_INDEX_FILE: "a6bbaea97eedd3f0a1158dc49e75e771",
+    V11_CELLS_FILE: "97df74cb201efc8efda7da5dc6925560",
 }
 
 #: Total bytes of HDF5, for the messages that warn about the download size.
@@ -373,11 +404,17 @@ V11_CONTINUATION_CELLS = (
 
 
 def v11_url_for(filename: str) -> str:
-    """Return the pinned Zenodo URL for one v1.1 file.
+    """Return the pinned Zenodo download URL for one v1.1 file.
 
-    Raises :class:`RuntimeError` while the record is unpublished, because there is
-    no honest URL to return. Callers that want the published/unpublished answer
-    without an exception should test :func:`v11_is_published`.
+    The shape is the files API's own ``links.content`` -- ``{base}/{name}/content``
+    -- not ``{base}/{name}``, which serves that file's JSON metadata instead of its
+    bytes. Both are pinned to the *version* record, so the bytes this returns cannot
+    change under a caller.
+
+    Raises :class:`RuntimeError` if the record constants have been blanked, because
+    there is then no honest URL to return. Callers that want the
+    published/unpublished answer without an exception should test
+    :func:`v11_is_published`.
     """
     if filename not in V11_SHA256:
         raise ValueError(
@@ -390,7 +427,7 @@ def v11_url_for(filename: str) -> str:
             "the v1.1 Zenodo record is not published, so {0} has no URL yet"
             .format(filename)
         )
-    return "{base}/{name}".format(base=V11_ZENODO_BASE, name=filename)
+    return "{base}/{name}/content".format(base=V11_ZENODO_BASE, name=filename)
 
 
 def v11_is_published() -> bool:

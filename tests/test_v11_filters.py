@@ -106,7 +106,7 @@ def test_filters_attr_counts_every_reason(exploration_dir, v11_dir):
     assert filters["n_rows_in"] > filters["n_rows_out"]
     assert filters["applied"]["require_series_valid"] is True
     assert filters["applied"]["clean"] is True
-    assert filters["v11_published"] is False
+    assert filters["v11_published"] is True
     reasons = " ".join(filters["excluded"])
     for fragment in ("beyond_crossing", "held-out test cells",
                      "is_clean_cycle", "is_series_valid"):

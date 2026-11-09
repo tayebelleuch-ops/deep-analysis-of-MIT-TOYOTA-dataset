@@ -1,10 +1,11 @@
 """Shared fixtures.
 
-Every test runs with the download cache pointed at a temporary directory and
-``MATR_CLEAN_DATA_DIR`` unset, so no test can read the developer's real cache or
-reach the network by accident. Retry backoff is stubbed out too, so a test that
-exercises the retry path proves the waits happen without spending them; a test that
-cares about their length patches ``_locate._sleep`` with its own recorder.
+Every test runs with the download cache pointed at a temporary directory,
+``MATR_CLEAN_DATA_DIR`` unset and ``urlopen`` replaced by one that raises, so no
+test can read the developer's real cache or reach the network by accident. Retry
+backoff is stubbed out too, so a test that exercises the retry path proves the waits
+happen without spending them; a test that cares about their length patches
+``_locate._sleep`` with its own recorder.
 """
 
 from __future__ import annotations
@@ -54,6 +55,48 @@ def isolated_state(tmp_path, monkeypatch):
     monkeypatch.setattr(features, "_V11_CACHE", {}, raising=False)
     monkeypatch.setattr(_locate, "_sleep", lambda seconds: None, raising=False)
     yield
+
+
+@pytest.fixture(autouse=True)
+def no_accidental_network(request, monkeypatch):
+    """Nothing in this suite may open a URL unless it says so.
+
+    Until the v1.1 record was published, ``V11_ZENODO_BASE is None`` was what kept
+    the suite offline: there was no URL to fetch. Step 5 can now really download
+    72.8 MB, so this file's promise has to be enforced rather than implied.
+
+    A test that wants the download path replaces ``urlopen`` with its own stub,
+    which overrides this one. A test that genuinely wants the published record
+    carries ``@pytest.mark.network`` and is skipped unless opted into.
+    """
+    if request.node.get_closest_marker("network"):
+        return
+
+    import urllib.request
+
+    def refuse(url, *args, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError(
+            "this test opened {0!r}. Install a urlopen stub, or mark it "
+            "@pytest.mark.network if it is meant to use the real record.".format(url)
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+
+
+@pytest.fixture
+def record_blanked(monkeypatch):
+    """Put the Zenodo constants back to their pre-publication ``None``.
+
+    The published record makes the no-record path unreachable in a normal install,
+    and it is still the path a fork or a mid-edit revision takes, so it stays
+    tested. Blanking the constants is how: the behaviour is a function of them, by
+    design, which is the whole point of keeping them in one module.
+    """
+    for name in ("V11_ZENODO_DOI", "V11_ZENODO_CONCEPT_DOI",
+                 "V11_ZENODO_RECORD_ID", "V11_ZENODO_BASE",
+                 "V11_ZENODO_RECORD_URL", "V11_DATA_TAG"):
+        monkeypatch.setattr(constants, name, None)
+    assert constants.v11_is_published() is False
 
 
 @pytest.fixture

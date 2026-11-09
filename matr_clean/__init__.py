@@ -21,9 +21,11 @@ within-cycle index -- still pandas and numpy only, because that index is a CSV::
 
 Where the data comes from: an explicit ``data_dir``, then :func:`set_data_dir`, then
 ``$MATR_CLEAN_DATA_DIR``, then the repository's ``exploration/`` folder if you are in
-a clone, and finally a one-off download into ``~/.cache/matr_clean`` from URLs pinned
-to the ``v1.0`` tag. Every file is checked against the SHA-256 recorded for that tag
-before it is used.
+a clone, and finally a one-off download into ``~/.cache/matr_clean``. The three v1.0
+CSVs are pinned to the ``v1.0`` git tag; the v1.1 within-cycle files are pinned to one
+published Zenodo *version* record -- ``constants.V11_ZENODO_DOI``, never the concept
+DOI -- and only the files a call actually needs are fetched. Every file is checked
+against its recorded SHA-256 before it is used.
 
 What is **not** here yet: the nine within-cycle series (``t``, ``I``, ``V``, ``T``,
 ``Qc``, ``Qd``) and the three interpolated grid curves (``Qdlin``, ``Tdlin``,

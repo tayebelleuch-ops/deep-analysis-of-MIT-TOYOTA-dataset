@@ -392,34 +392,67 @@ mc.load_cycle_features(data_dir="~/matr/csv", v11_dir="~/matr/within_cycle")
 ```
 
 The lookup order is v0.1.1's, unchanged: argument → `set_data_dir()` →
-`$MATR_CLEAN_DATA_DIR` → clone → `~/.cache/matr_clean`. A directory you name
-explicitly **raises rather than falling back** — a wrong path is a mistake worth
-seeing. Every file is checked against the SHA-256 in `MANIFEST_v1.1.md` once per
-process, and your folders are only ever read.
+`$MATR_CLEAN_DATA_DIR` → clone → `~/.cache/matr_clean`, downloaded once from the
+Zenodo record if it is not there. A directory you name explicitly **raises rather than
+falling back** — a wrong path is a mistake worth seeing. Every file is checked against
+the SHA-256 in `MANIFEST_v1.1.md` once per process, and your folders are only ever
+read.
 
-### The v1.1 data is a Zenodo **draft**, so there is nothing to download yet
+### The v1.1 data comes from a published Zenodo record
 
-The within-cycle extraction is deposited on Zenodo but **not published**. It therefore
-has no DOI and no public file URLs, and every Zenodo-dependent value in
-`matr_clean/constants.py` is a `None`/`TODO` placeholder:
-`V11_ZENODO_DOI`, `V11_ZENODO_RECORD_ID`, `V11_ZENODO_BASE`, `V11_DATA_TAG`.
+The within-cycle extraction is published, with a DOI, so step 5 works for it exactly
+as it does for the v1.0 CSVs:
 
-While they are unset, any path that would download raises one clear error:
+| | |
+|---|---|
+| record | <https://zenodo.org/records/23984188> |
+| version DOI | `10.5281/zenodo.23984188` — what the loader pins |
+| concept DOI | `10.5281/zenodo.23984187` — resolves to "latest"; **not** used |
+| published | 2026-11-05 (version label `1.1.0`) |
+
+The *version* DOI is pinned deliberately. A concept DOI follows whichever version is
+latest, so pinning it would let a future revision of the record change what your code
+loads without a line of your code changing.
+
+**Only what you ask for is downloaded.** The two CSVs are 72.9 MB together, and that is
+all the DataFrame loaders need; the three HDF5 files are 2.20 GB and are fetched a
+batch at a time, when something asks for that batch — which nothing does yet, because
+the code that *reads* the HDF5 is still to come. Files land in
+`~/.cache/matr_clean` (or `$MATR_CLEAN_CACHE_DIR`), are staged through a `.part` file so
+an interrupted download cannot be mistaken for a finished one, and are checked against
+the SHA-256 in `MANIFEST_v1.1.md` before they are used. A file in the cache that fails
+that check is **deleted**, so the next run refetches it rather than reading bad bytes
+forever; a file in a directory *you* named is never deleted, only reported.
+
+If the network is unavailable the loader says so once, without retrying — a refused
+connection is not a transient failure — and prints the per-file URLs, their sizes and
+both of the routes that need no network:
 
 ```
-v1.1 data not yet published; use data_dir= or MATR_CLEAN_DATA_DIR.
+The v1.1 within-cycle data is not available locally and could not be downloaded.
+  reason: within_cycle_index.csv: <urlopen error [Errno 111] Connection refused>
+
+It is published, with a DOI, at
+  https://zenodo.org/records/23984188
+  DOI 10.5281/zenodo.23984188  (version 1.1.0)
+...
 ```
 
-It is raised **before any network call**. Local, clone and Drive use work completely —
-only downloading is unavailable. The five SHA-256 values are already pinned from
-`MANIFEST_v1.1.md`, because the extraction is byte-reproducible and those hashes do not
-depend on the record. Once it is published, filling in those four placeholders is a
-one-file change and downloading works exactly as v1.0's does.
+Every Zenodo-dependent value lives in one block of `matr_clean/constants.py`
+(`V11_ZENODO_*`, `V11_DATA_TAG`), read out of the record's own files API listing rather
+than assembled from a URL pattern — Zenodo serves a file's bytes from
+`…/files/<name>/content` and its *metadata* from `…/files/<name>`, and only the listing
+says which is which. Blank that block and the package returns to its pre-publication
+behaviour: everything local keeps working and every download path raises
+`v1.1 data not yet published; use data_dir= or MATR_CLEAN_DATA_DIR.` before any socket
+call.
 
-Of the record's eight files, five carry published hashes and four are ever loaded.
+Of the record's eight files, five carry a published SHA-256 and four are ever loaded.
 `SHA256SUMS.txt` covers six files of which five are published: it also hashes
 `within_cycle_index_raw.csv`, the pre-flag intermediate that is deliberately not
-uploaded, and it does not hash itself, `EXTRACTION.md` or `LICENSE.txt`.
+uploaded, and it does not hash itself, `EXTRACTION.md` or `LICENSE.txt`. Zenodo reports
+an MD5 for all eight; the five that matter are in `constants.V11_ZENODO_MD5`, which is
+what you can compare against the record page without downloading anything.
 
 ---
 
@@ -592,8 +625,10 @@ never writes to a folder you name. Hashes are verified once per process, which o
 over Drive takes a few seconds — worth it once per session.
 
 **The alternative is a per-batch download.** Only the batches you touch are fetched, so
-a model that uses one batch pays 0.6–0.8 GB rather than 2.3 GB. Both routes will be
-documented when v0.3.0 ships. Neither is available until the Zenodo record is published.
+a model that uses one batch pays 0.6–0.8 GB rather than 2.3 GB. The download route is
+in place and pinned to the published record; what is still to come is the code that
+*reads* the HDF5, which is why the figures below are the only thing this section can
+quote today.
 
 A cell can span **two** batch files (five do), so a per-batch download is not a
 per-cell partition — see the next section.
@@ -692,8 +727,10 @@ v0.2.0 the column itself is carried too.
 
 **v0.3.0 reads the rest.** The within-cycle extraction adds the nine series and the
 voltage grid as three HDF5 files, behind an optional extra:
-`pip install "matr-clean[series]"`. They are **not released yet** — the Zenodo record is
-still a draft — and until then the raw `.mat` files are the only source for them.
+`pip install "matr-clean[series]"`. The files themselves are published (DOI
+`10.5281/zenodo.23984188`) and the loader can already download them; what is not here
+yet is the code that reads them, so until that lands the raw `.mat` files remain the
+only route to the series.
 
 **The raw `.mat` files are not used and not needed.** This loader never opens them, and
 v0.2.0 requires no `h5py` at all. If you do need voltage-domain features before that release,

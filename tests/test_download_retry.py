@@ -57,7 +57,8 @@ def _urlopen_script(source: Path, script):
     ``"stall"``             8 KB, then a read timeout (what a hung CDN looks like)
     ``"reset"``             8 KB, then ConnectionResetError
     ``("http", code)``      urlopen raises HTTPError with that status
-    ``("truncate", n)``     serve only the first n bytes, cleanly
+    ``("truncate", n)``     serve only the first n bytes, cleanly -- a cut transfer
+    ``"corrupt"``           serve the right *number* of bytes, one of them wrong
     """
     calls = []  # one entry per urlopen call: (filename, timeout)
     plans = {name: list(steps) for name, steps in script.items()}
@@ -81,6 +82,12 @@ def _urlopen_script(source: Path, script):
             partial = source.parent / ("partial_" + name)
             partial.write_bytes(cut)
             return _Response(partial)
+        if step == "corrupt":
+            data = bytearray((source / name).read_bytes())
+            data[0] = (data[0] + 1) % 256
+            bad = source.parent / ("corrupt_" + name)
+            bad.write_bytes(bytes(data))
+            return _Response(bad)
         raise AssertionError("unknown step {0!r}".format(step))
 
     return fake_urlopen, calls
@@ -174,8 +181,14 @@ def test_a_persistent_failure_gives_up_after_max_attempts(downloads):
 # ---------------------------------------------------------------------------
 
 def test_a_hash_mismatch_is_never_retried_and_the_file_is_deleted(downloads):
-    """A truncated-but-clean download: the bytes are wrong, so a retry is pointless."""
-    calls = downloads({C.CYCLES_FILE: [("truncate", 4096)] * 10})
+    """The whole file arrives and its bytes are wrong: a retry cannot fix that.
+
+    "Wrong bytes" and "not all the bytes" are different failures and this suite
+    keeps them apart. Here the response is the right *length* -- so the transfer
+    completed -- and one byte differs, which is the only shape that should reach the
+    hash check as final.
+    """
+    calls = downloads({C.CYCLES_FILE: ["corrupt"] * 10})
 
     with pytest.raises(mc.IntegrityError) as excinfo:
         mc.load_cells()
@@ -188,6 +201,40 @@ def test_a_hash_mismatch_is_never_retried_and_the_file_is_deleted(downloads):
     assert not (cache / C.CYCLES_FILE).exists()      # the bad file is gone
     assert _leftovers(cache) == []
     assert not _attempts_for(calls, C.INVENTORY_FILE), "it stopped at the bad file"
+
+
+def test_a_cut_transfer_is_retried_and_then_succeeds(downloads):
+    """A body that stops short of Content-Length, with no error raised.
+
+    This is what a dropped connection looks like to ``HTTPResponse.read(amt)``,
+    which returns ``b""`` rather than raising -- so without the byte count in
+    ``_fetch_once`` the file would be handed to the hash check and the user told
+    their data is corrupt. It is not corrupt: it is incomplete, and one more attempt
+    gets it. Observed for real against the 72.8 MB v1.1 index.
+    """
+    calls = downloads({C.CYCLES_FILE: [("truncate", 4096), ("truncate", 1 << 20),
+                                       "ok"]})
+
+    frame = mc.load_cells()
+    assert len(frame) > 0
+    assert len(_attempts_for(calls, C.CYCLES_FILE)) == 3
+    cache = C.cache_dir()
+    assert _leftovers(cache) == [], "a cut attempt left something behind"
+    assert (cache / C.CYCLES_FILE).stat().st_size == C.SIZE_BYTES[C.CYCLES_FILE]
+
+
+def test_a_cut_transfer_that_never_completes_says_so(downloads):
+    """And it is not retried forever: four attempts, then the manual route."""
+    calls = downloads({C.CELLS_FILE: [("truncate", 4096)] * 10})
+
+    with pytest.raises(mc.DownloadError) as excinfo:
+        mc.load_cells()
+
+    assert len(_attempts_for(calls, C.CELLS_FILE)) == _locate.MAX_ATTEMPTS
+    message = str(excinfo.value)
+    assert "truncated response" in message
+    assert "{0} attempts failed".format(_locate.MAX_ATTEMPTS) in message
+    assert _leftovers(C.cache_dir()) == []
 
 
 @pytest.mark.parametrize("code", [403, 404, 410, 451])
