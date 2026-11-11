@@ -16,7 +16,7 @@ a 114,738 x 77 CSV, and ``within_cycle_cells.csv``. Neither is an HDF5 file, whi
 is why v0.2.0 needs no ``h5py``: the six summary series and all nine validity flags
 are columns of the index. Only the within-cycle *series themselves* -- the nine
 arrays and the ``Vdlin`` grid -- live in HDF5, and those are read by
-:func:`matr_clean.load_series` (v0.3.0, optional ``series`` extra).
+:func:`matr_clean.load_series` (optional ``series`` extra).
 
 The index is read with ``usecols``, so the 36 columns these functions expose cost
 about 26 MB in memory rather than the file's full 72 MB. The other ~41 columns are

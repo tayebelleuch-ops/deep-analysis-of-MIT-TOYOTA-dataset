@@ -545,6 +545,9 @@ zero-filled. `clean=` and `require_series_valid=` set that mask and never change
 shape; `drop_invalid_cells=True` is the only argument that removes a cell, and it
 reports which ones in `result["filters"]`. The data at a masked position is whatever the
 file holds: NaN for a placeholder row, the real ±1,400 Ah number for an out-of-band one.
+`is_clean_cycle` is the one array that is not boolean: it is `int8` and **tri-state**,
+`-1` meaning v1.0 never judged the row rather than judged it dirty — see "Load once,
+slice prefixes" below.
 
 `present` is returned alongside `valid` and answers a different question: `present=False`
 means the index has **no such cycle at all**, so a gap in the cycle sequence stays
@@ -581,7 +584,8 @@ scaler fitted on them is ruined. **34 of the 48 are `is_clean_cycle == True`**, 
 v1.0 flag will not save you; `series_grid_in_range` and `is_series_valid` will.
 
 **Inside the first 25 cycles** — the window an early-cycle model consumes — labels 1–25
-hold **93 invalid positions across 48 of the 135 cells**: the 46 placeholders, a cluster
+hold **93 invalid positions across 48 of the 135 cells** — **80 across 39 of the 108
+non-test cells**, which is what the default call returns: the 46 placeholders, a cluster
 at labels 12–13 from an undocumented multi-cell event, **6 positions with impossible
 `Qdlin` (up to +48.8 Ah)**, and `EL150800453240`, **all 25 of whose first 25 cycles** are
 inside a 53-cycle splice run. That cell contributes nothing usable to a 25-cycle model
@@ -597,64 +601,84 @@ print(len(bad), "invalid positions across", bad["cell_uid"].nunique(), "cells")
 
 ### The early-cycle window
 
-v0.3.0 ships no dedicated early-window function, and does not need one for this: an
-early window is a cycle range, and `load_series` takes any range.
+An early window is a cycle range, and `load_series` takes one directly — `start=` is
+the first cycle **label**, `n=` the number of positions:
 
 ```python
-# labels 1..25 for every cell -- the simple convention
-w = mc.load_series(cycles=range(1, 26))
-w["Qdlin"].shape          # (108, 25, 1000)
+# labels 10..100 for every cell -- the window this project trains on
+w = mc.load_series(start=10, n=91, fields=("Qdlin",))
+w["Qdlin"].shape          # (108, 91, 1000)
 w["cycle"][0]             # the labels you actually got
 w["valid"].sum()          # how many positions are usable
 ```
 
-**Two conventions, and they differ for exactly 46 cells.** `cycles=range(1, 26)` asks
-for *labels* 1–25. For the 46 cells of 2017-05-12, label 1 is the zero-filled
-placeholder, so position 0 of those rows is structurally empty and always masked. The
-alternative is the first 25 **measured** cycles, which for those 46 cells is labels 2–26:
+`start=a, n=k` is exact sugar for `cycles=range(a, a + k)`; the two are mutually
+exclusive, and `cycles=` remains the way to name an arbitrary label set
+(`cycles=[10, 100]`). **There is no `load_early_window`, and there will not be one**:
+it would be this call with its arguments hidden, and the one thing a caller of an
+early window must know is which convention is in force.
+
+**Two conventions, and `window=` chooses.** `window="labels"` (the default) indexes
+cycle labels as stored. `window="measured"` takes each cell's first `n`
+**non-placeholder** rows at or after `start` — "the first N measured cycles" when
+`start=1`. It *selects* rows and changes no value in any of them; `filters["repaired"]`
+still reads `"nothing"`.
 
 ```python
-feats = mc.load_cycle_features(clean=False, require_series_valid=False,
-                               include_test=True)
-first25 = (feats[~feats["is_placeholder"]]
-           .sort_values(["cell_uid", "cycle"])
-           .groupby("cell_uid")["cycle"].head(25))
-w = mc.load_series("EL150800460514",
-                   cycles=first25.loc[feats["cell_uid"] == "EL150800460514"].tolist())
+first25 = mc.load_series(window="measured", start=1, n=25)   # no placeholder anywhere
+labels25 = mc.load_series(start=1, n=25)                     # labels 1..25, 46 masked
 ```
 
-Measured over all 135 cells, the choice costs this much:
+The two can differ only where a placeholder or an absent label falls inside the
+window. The only placeholder in the dataset is **label 1 of each of the 46 cells of
+2017-05-12** (37 of the 108 non-test cells), and no cell has an interior label gap, so:
 
-| N | convention | masked positions | cells affected | NaN in the array |
-|---|---|---|---|---|
-| 10 | labels | 56 of 1,350 | 47 | 46 rows × 3 fields |
-| 10 | measured | 11 of 1,350 | 2 | **none** |
-| 25 | labels | 93 of 3,375 | 48 | 46 rows × 3 fields |
-| 25 | measured | 48 of 3,375 | 18 | **none** |
-| 50 | labels | 118 of 6,750 | 48 | 46 rows × 3 fields |
-| 50 | measured | 73 of 6,750 | 18 | **none** |
+| start | n | labels | convention | population | masked positions | cells affected | all-NaN grid rows |
+|---|---|---|---|---|---|---|---|
+| 1 | 10 | 1..10 | labels | 135 | 56 of 1,350 | 47 | 46 |
+| 1 | 10 | 1..10 | measured | 135 | 11 of 1,350 | 2 | **none** |
+| 1 | 25 | 1..25 | labels | 135 | 93 of 3,375 | 48 | 46 |
+| 1 | 25 | 1..25 | labels | **108** | **80 of 2,700** | **39** | 37 |
+| 1 | 25 | 1..25 | measured | 135 | 48 of 3,375 | 18 | **none** |
+| 1 | 25 | 1..25 | measured | **108** | **44 of 2,700** | **14** | **none** |
+| 1 | 50 | 1..50 | labels | 135 | 118 of 6,750 | 48 | 46 |
+| 1 | 50 | 1..50 | measured | 135 | 73 of 6,750 | 18 | **none** |
+| 1 | 100 | 1..100 | labels | 135 | 126 of 13,500 | 48 | 46 |
+| 1 | 100 | 1..100 | measured | 135 | 80 of 13,500 | 19 | **none** |
+| **10** | **91** | **10..100** | **either** | 135 | **71 of 12,285** | **19** | **none** |
+| **10** | **91** | **10..100** | **either** | **108** | **67 of 9,828** | **15** | **none** |
+| 10 | 291 | 10..300 | either | 135 | 124 of 39,285 | 66 | **none** |
+| 10 | 291 | 10..300 | either | **108** | **109 of 31,428** | **53** | **none** |
 
-Under the measured convention there is **no NaN in the array at all**, at any of those
-window lengths — the placeholder rows are simply never selected, so there is nothing for
-`np.nan_to_num` to do and nothing it can quietly do wrong. Under the label convention a
-third of the cells carry a guaranteed-empty first position. And note that widening the
-window from 25 to 50 costs nothing: the damage is concentrated at labels 12–13, so the
-same 18 cells are affected either way.
+The 108-cell rows are what the default `include_test=False` call returns; the 135-cell
+rows need `include_test=True`.
 
-The cost of the measured convention is that the cycle *labels* of those 46 cells shift by
-one, which breaks the paper's ΔQ(100−10) convention — that feature is **label**-based.
-`load_series` always returns the `cycle` matrix so what you got is never ambiguous, and
-for label-indexed work you name the labels outright:
-`mc.load_series(cell, cycles=[10, 100])`.
+**From `start=10` the two conventions are identical.** Over labels 10..100 they return
+the same labels, the same mask and the same cell set — 0 of 12,285 positions differ.
+So if you start at label 10, leave `window=` alone. `window="measured"` earns its keep
+for exactly one question: *N real measurements per cell from the very beginning of
+life*, where `start=1` and the label convention hands 46 cells a structurally empty
+first position.
+
+The cost of the measured convention is that the cycle *labels* of those 46 cells shift
+by one, which breaks the paper's ΔQ(100−10) convention — that feature is **label**-based,
+and under `window="labels"` a label is the same physical cycle in every batch.
+`load_series` always returns the `cycle` matrix, so what you got is never ambiguous.
+
+At `start=10, n=291` one cell (148 requestable cycles) runs out: 152 positions come back
+`present=False`. Under `labels` they keep the requested label 149–300; under `measured`
+they carry label **0**, which cannot be mistaken for a cycle because labels start at 1.
+Nothing is stretched or repeated to fill them.
 
 **What the first 25 cycles actually contain.** Under the label convention, 93 of the
-3,375 positions are series-invalid across 48 of 135 cells:
+3,375 positions (all 135 cells) are series-invalid across 48 cells:
 
 * **46 placeholders** — label 1 of every 2017-05-12 cell, all-NaN grid rows;
 * **`EL150800453240`: all 25 of its first measured cycles**, inside the cycles 1–53
   splice run. This cell contributes nothing usable to a 25-cycle model and must be
   masked wholesale, not averaged in;
-* a cluster at labels **12–13**: 17 invalid cycles across **16** of that batch's 46 cells;
+* a cluster at labels **12–13**: 17 invalid cycles across **16** of that batch's 46 cells
+  (18 rows across 17 cells once 2018-04-12's single label-13 row is counted);
 * **6 positions fail `series_grid_in_range`**, and **four of those six** carry an
   out-of-band `Qdlin` — up to **+48.8 Ah** (`EL150800464865` label 12), then +45.3
   (`EL150800464977`), +33.0 (`EL150800463871`) and +31.0 (`EL150800464002`) on a 1.1 Ah
@@ -666,10 +690,106 @@ nominal, inside the data a model is conditioned on. `is_series_valid` catches al
 `is_clean_cycle` does not catch five of them. The ±1,400 Ah and 2,089 °C extremes are all
 **outside** the first 25 cycles — an early-window model is hurt by ~45 Ah, not by ~4,000.
 
-`drop_invalid_cells=True` removes any cell with an invalid row in the range: 18 of 135
-at a 25-cycle measured window, 48 under labels. It is off by default, because trading 18
-cells for 48 of 3,375 positions is rarely the right deal.
+`drop_invalid_cells=True` removes any cell with an invalid row in the range. Over labels
+1..25 that is **39 of 108** cells to recover **80 of 2,700** positions under `labels`,
+or **14 of 108** for **44** under `measured`; over labels 10..100 it is **15 of 108** for
+**67 of 9,828** under either. It is off by default, because trading cells for a handful
+of positions is rarely the right deal.
 
+---
+
+## Load once, slice prefixes
+
+Expanding (prefix) and rolling windows need no loader support and no second read. One
+call returns the widest window you will use; every narrower one is a slice of it, and
+**the mask is sliced with the array, as one object**:
+
+```python
+START, N = 10, 291                                   # labels 10..300
+data = mc.load_series(start=START, n=N, fields=("Qdlin",))
+
+for k in range(100, 301):                            # every expanding prefix
+    stop = k - START + 1
+    X   = data["Qdlin"][:, :stop]                    # (n_cells, stop, 1000)
+    m   = data["valid"][:, :stop]                    # the mask, same slice
+    lab = data["cycle"][:, :stop]                    # and the labels, same slice
+
+L = 50                                               # rolling instead
+for j in range(0, N - L + 1):
+    X, m = data["Qdlin"][:, j:j + L], data["valid"][:, j:j + L]
+```
+
+That one call costs 0.47 GB for all three grid fields over all 135 cells, 0.13 GB for
+one field over the 108 non-test cells — well inside the 2 GiB `max_bytes` ceiling. Never
+re-derive the mask from the data: a masked position holds whatever the file holds, which
+is NaN for a placeholder and a real +48.8 Ah for an out-of-band row. And take the labels
+from `data["cycle"]` rather than inferring them from a position — that is the one habit
+this loader exists to make unnecessary.
+
+**Start at label 10.** Label 1 of the 46 cells of 2017-05-12 is the zero-filled
+placeholder: an all-NaN grid row in the array, and a literal `0.0` in the native fields,
+where NaN-checking cannot see it at all. Starting at label 10 excludes it outright,
+which is why `window="labels"` and `window="measured"` return identical results from
+there and why `window=` can be left at its default.
+
+**Split by cell, never by window.** Every prefix of one cell shares that cell's
+degradation trajectory and its cell-level artifacts, so a window-level split leaks a
+cell's own future into training. Split `cell_uid` — `mc.cv_splits("fold")`, which
+yields `Split(kind, label, train, test)` with `train` and `test` as `cell_uid` arrays
+**grouped by barcode**, so a continuation cell cannot straddle a split — then take
+every window of every training cell. The 27 `fold == -1` cells stay out until the very end; `include_test=False` (the
+default) already excludes them from `load_series`, and `cv_splits` never yields them.
+
+```python
+for split in mc.cv_splits("fold"):            # 5 folds of cell_uid
+    rows = np.isin(data["cell_uid"], split.train)
+    X, m = data["Qdlin"][rows], data["valid"][rows]
+```
+
+**Fit normalization on valid positions of training cells only.** Statistics come from
+`X[rows][m[rows]]` and nothing else — not from test cells, not from masked positions:
+
+```python
+pool = data["Qdlin"][rows][data["valid"][rows]]       # 2-D: valid positions only
+mu, sd = pool.mean(axis=0), pool.std(axis=0)          # per grid point
+```
+
+One out-of-band position is ~45 Ah against a 1.1 Ah nominal and will ruin a scaler by
+itself; six of them sit inside labels 1..25.
+
+**Masked-mean loss.** Weight by the mask; never take a plain mean over a window that
+has masked positions in it:
+
+```python
+w = m.astype("float32")
+loss = ((pred - X) ** 2 * w[..., None]).sum() / max(w.sum(), 1.0)
+```
+
+A plain `.mean()` trains the model on whatever sits at the masked positions.
+
+**Fill only after normalization, and always pass the mask on.** If a framework needs a
+dense tensor, substitute a value **after** the statistics are fitted, and send the mask
+into the loss alongside it:
+
+```python
+Xn = (X - mu) / sd
+Xn = np.where(m[..., None], Xn, 0.0)          # 0.0 = the post-normalization mean
+```
+
+Filling before normalization puts the fill value into the statistics. Filling without
+carrying the mask makes the fill indistinguishable from a measurement. **The loader
+itself fills nothing** — not under `window="measured"`, not anywhere — and an AST test
+over `series.py` and `_h5.py` keeps it that way, so the choice and its consequences
+stay with the caller.
+
+**`is_clean_cycle` is a tri-state, and `-1` is not "dirty".** It comes back as `int8`
+with **`1`** clean, **`0`** dirty and **`-1` = v1.0 never judged this row**. `-1` covers
+the **1,179 `beyond_crossing` cycles** (of 114,738), which have no row in
+`analysis_set_cycles.csv` at all because that file is truncated at each cell's 80% SOH
+crossing, and any requested label with no row. With the default `beyond_crossing=False`
+those cycles are not in the request, so `-1` then marks only absent labels — a labels
+window over 10..100 returns **zero** of them. Filter with `is_clean_cycle == 1`, never
+with `!= 0` and never by truthiness: `bool(-1)` is `True`.
 ---
 
 ## The large files: Colab, Kaggle and Drive
@@ -828,7 +948,7 @@ and charge time no longer belong on that list: `load_cycle_features()` returns t
 `chargetime` is worth naming — it was *used* to derive `is_restart_cycle`, and as of
 v0.2.0 the column itself is carried too.
 
-**v0.3.0 reads the rest.** The within-cycle extraction adds the nine series and the
+**This loader reads the rest.** The within-cycle extraction adds the nine series and the
 voltage grid as three HDF5 files, published under DOI `10.5281/zenodo.23984188`, and
 `load_series()` reads them behind an optional extra:
 `pip install "matr-clean[series]"`. So the ΔQ(V) curves the original paper is built on

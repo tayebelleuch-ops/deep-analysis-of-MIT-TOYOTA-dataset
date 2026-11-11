@@ -34,14 +34,26 @@ addressed by ``cell_uid`` and located by the index's ``h5_row``; no code path he
 computes a row from a channel, a struct index or a position in any array, because
 113 of the 140 struct rows have ``source_struct_index + 1 != source_channel``.
 
-**Rolling windows need no other function.** ``cycles=`` takes any range, and the
-return carries the labels, the mask and the gaps, so a loop over ranges is the whole
-API::
+**Rolling and expanding windows need no other function.** ``cycles=`` takes any
+range, ``start=``/``n=`` take a window directly, and the return carries the labels,
+the mask and the gaps -- so one call and a slice is the whole API::
 
-    for start in range(1, 401, 25):
-        w = mc.load_series(uid, cycles=range(start, start + 25))
-        if w["valid"].all():
-            ...
+    data = mc.load_series(uid, start=10, n=291)        # labels 10..300, once
+    for k in range(100, 301):                          # every expanding prefix
+        X, m = data["Qdlin"][:, : k - 9], data["valid"][:, : k - 9]
+
+**Two window conventions.** ``window="labels"`` (the default) indexes cycle labels
+as stored; ``window="measured"`` takes each cell's first *n* **non-placeholder**
+rows at or after ``start``. ``measured`` *selects* different rows -- it never fills,
+clips or interpolates anything, and ``filters["repaired"]`` still says so. The two
+differ only where a placeholder or an absent label falls inside the window, and the
+only placeholder in the dataset is **label 1 of each of the 46 cells of
+2017-05-12**, so from ``start=10`` they are measurably identical: over labels
+10..100 they return the same labels, the same mask and the same cells (0 of 12,285
+positions differ). Starting at label 1, ``labels`` masks 93 positions across 48 of
+135 cells where ``measured`` masks 48 across 18. ``labels`` is the default because
+it is the convention in which a label is the same physical cycle in every batch,
+and the one the paper's dQ(100-10) feature is defined in.
 """
 
 from __future__ import annotations
@@ -223,6 +235,101 @@ def _normalise_cycles(cycles) -> Optional["np.ndarray"]:
     return labels
 
 
+def _normalise_window(window, cycles, start, n):
+    """Validate ``window``/``start``/``n`` and return ``(window, cycles, start, n)``.
+
+    ``start`` is a cycle **label** under both conventions, never an ordinal, and
+    ``n`` is a count of returned positions. The rules, and why each one refuses
+    rather than guesses:
+
+    * ``start`` and ``n`` come as a pair. One without the other has no window.
+    * ``cycles=`` and ``start``/``n`` are mutually exclusive -- two spellings of
+      the same request, and no reason to merge them.
+    * ``window="measured"`` with an explicit ``cycles=`` raises: an arbitrary label
+      set has no meaning under a convention that re-indexes per cell, and quietly
+      reinterpreting the labels would be the one failure this module exists to
+      avoid.
+    * ``window="labels"`` with ``start``/``n`` is exact sugar: it becomes
+      ``cycles=range(start, start + n)`` here, so the two spellings share one code
+      path and cannot drift apart.
+    """
+    window = str(window)
+    if window not in ("labels", "measured"):
+        raise ValueError(
+            "window= must be 'labels' (cycle labels as stored, the default) or "
+            "'measured' (each cell's first n non-placeholder cycles from start); "
+            "got {0!r}".format(window)
+        )
+    if (start is None) != (n is None):
+        raise ValueError(
+            "start= and n= come as a pair: start= is the first cycle label of the "
+            "window and n= how many positions it has. Got start={0!r}, n={1!r}."
+            .format(start, n)
+        )
+    if start is not None:
+        if cycles is not None:
+            raise ValueError(
+                "pass either cycles= or start=/n=, not both: cycles=range(a, a + k) "
+                "and start=a, n=k are the same request under window='labels'."
+            )
+        start, n = int(start), int(n)
+        if start < 1:
+            raise ValueError(
+                "start= is a cycle label and labels start at 1 "
+                "(cycle = struct index + 1); got {0}".format(start)
+            )
+        if n < 1:
+            raise ValueError(
+                "n= is a window length and must be >= 1; got {0}".format(n)
+            )
+    if window == "measured" and cycles is not None:
+        raise ValueError(
+            "window='measured' re-indexes each cell onto its own non-placeholder "
+            "rows, so an explicit cycles= label set has no meaning there. Use "
+            "start=/n= for a measured window, or cycles= with window='labels' "
+            "(the default) to name labels outright."
+        )
+    if window == "labels" and start is not None:
+        cycles = range(start, start + n)
+    return window, cycles, start, n
+
+
+def _measured_labels(sub, uids, start, n):
+    """Per-cell label grid for ``window="measured"``: the first *n* measured rows.
+
+    A row is *measured* when ``is_placeholder`` is false -- the 46 zero-filled
+    placeholders are the only rows the dataset has that are not a measurement, and
+    all 46 are label 1 of a 2017-05-12 cell. ``start`` floors the labels, ``n``
+    caps the count; ``n=None`` means every measured row each cell has.
+
+    A cell with fewer than *n* such rows gets label ``0`` and ``present=False`` in
+    its trailing positions -- the same padding the ``cycles=None`` path uses, and
+    label 0 cannot be mistaken for a cycle because labels start at 1. Nothing is
+    stretched, repeated or interpolated to fill a short cell.
+    """
+    pool = sub.loc[~sub["is_placeholder"].astype(bool)]
+    if start is not None:
+        pool = pool.loc[pool["cycle"] >= start]
+    per_cell = pool.groupby("cell_uid")["cycle"].apply(
+        lambda column: np.sort(column.to_numpy())
+    )
+    own = [
+        np.asarray(per_cell.get(uid, np.empty(0, dtype=np.int64)), dtype=np.int64)
+        for uid in uids
+    ]
+    n_cycles = int(n) if n is not None else max(int(a.size) for a in own)
+    if n_cycles == 0:
+        raise ValueError(
+            "window='measured' left no cycle to read: none of those cells has a "
+            "non-placeholder row in the requested range."
+        )
+    grid = np.zeros((len(uids), n_cycles), dtype=np.int64)
+    for i, labels in enumerate(own):
+        take = labels[:n_cycles]
+        grid[i, : take.size] = take
+    return grid, n_cycles
+
+
 def _runs(rows: "np.ndarray") -> List[Tuple[int, int]]:
     """Split ascending *rows* into maximal contiguous half-open ``(lo, hi)`` spans.
 
@@ -324,6 +431,9 @@ def load_series(
     max_bytes: Optional[int] = DEFAULT_MAX_BYTES,
     data_dir: Optional[str] = None,
     v11_dir: Optional[str] = None,
+    window: str = "labels",
+    start: Optional[int] = None,
+    n: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Read within-cycle series for any cells over any cycle range.
 
@@ -335,9 +445,45 @@ def load_series(
         which is the alignment contract with :func:`load_conditioning`.
     cycles:
         ``None`` for every cycle each cell has; otherwise an int, a ``range``, a
-        ``slice`` with explicit bounds, or any sequence of **cycle labels**. The
-        returned arrays always have ``len(cycles)`` positions, in the order given:
-        a label with no row comes back masked, with its label intact.
+        ``slice`` with explicit bounds, or any sequence of **cycle labels** -- the
+        ``window="labels"`` convention, which is what this argument has always
+        meant. The returned arrays always have ``len(cycles)`` positions, in the
+        order given: a label with no row comes back masked, with its label intact.
+        Mutually exclusive with ``start``/``n``.
+    window:
+        ``"labels"`` (the default) or ``"measured"``.
+
+        ``"labels"`` indexes **cycle labels as stored**: ``start=10, n=91`` is
+        labels 10..100 for every cell, and a label the index has no row for is a
+        masked position that keeps its label.
+
+        ``"measured"`` takes each cell's first ``n`` **non-placeholder** rows at or
+        after ``start`` -- literally "the first n measured cycles" when
+        ``start=1`` -- so the labels come back per cell. It counts **rows**: a
+        label with no row is simply not one of them, so a measured window can span
+        a gap in the labels, and the returned ``cycle`` matrix is the only
+        statement of what you got. It **selects** rows; it fills, clips and
+        interpolates nothing, and ``filters["repaired"]`` still says so. With
+        ``cycles=None`` and no ``start`` it is every measured cycle of each cell,
+        i.e. the ``cycles=None`` result minus the 46 placeholders. An explicit
+        ``cycles=`` is refused under this convention.
+
+        The two differ only where a placeholder or an absent label falls inside
+        the window. The only placeholder is label 1 of each of the 46 cells of
+        2017-05-12 (37 of the 108 non-test cells) and no cell has an interior
+        label gap, so **from start=10 the two are identical**: over labels 10..100
+        they return the same labels, the same mask and the same cells, 0 of 12,285
+        positions differing. From label 1 they diverge sharply -- see the
+        ``drop_invalid_cells`` figures below. Recommended: leave ``window`` alone
+        and start at label 10.
+    start, n:
+        A window, given directly: ``start`` is the first cycle **label** (never an
+        ordinal, under either convention) and ``n`` the number of positions.
+        They come as a pair, and exclude ``cycles=``. Under ``window="labels"``,
+        ``start=a, n=k`` is exact sugar for ``cycles=range(a, a + k)``. Under
+        ``window="measured"`` it is the only way to bound the window, and a cell
+        with fewer than ``n`` measured rows from ``start`` gets label ``0`` with
+        ``present=False`` in its trailing positions.
     fields:
         Any mix of the six native fields ``t, I, V, T, Qc, Qd`` (ragged, returned as
         nested lists) and the three grid fields ``Qdlin, Tdlin, discharge_dQdV``
@@ -359,9 +505,16 @@ def load_series(
         ``False`` (the default) drops the 27 held-out cells (``fold == -1``).
     drop_invalid_cells:
         ``True`` removes a whole cell when **any** row in the requested range is
-        series-invalid. Off by default: at a 25-cycle window it costs 18 of 135
-        cells to recover 48 of 3,375 positions, so masking is almost always the
-        better trade. The dropped uids are in ``result["filters"]``.
+        series-invalid. Off by default, and the measured cost of turning it on
+        depends on both the window and the convention. Over labels 1..25, the
+        default ``include_test=False`` population of **108** cells:
+        ``window="labels"`` costs **39 cells** to recover **80 of 2,700**
+        positions, ``window="measured"`` **14 cells** for **44**. Over all 135
+        cells (``include_test=True``): **48 for 93**, and **18 for 48**. Over the
+        early-cycle window that matters here, labels 10..100, both conventions
+        cost **15 of 108** cells (19 of 135) to recover **67 of 9,828** positions
+        (71 of 12,285). Masking is almost always the better trade. The dropped
+        uids are in ``result["filters"]``.
     max_bytes:
         Ceiling on the array payload, checked before any dataset is read.
         ``None`` disables it. Every field of every cycle of every cell is 4.51 GB.
@@ -378,7 +531,15 @@ def load_series(
         (n_cells, n_cycles) bool, the mask to train on; ``present`` the same shape,
         ``False`` where the index has no such row at all; the raw flags
         ``is_placeholder``, ``is_series_valid``, ``beyond_crossing`` (bool) and
-        ``is_clean_cycle`` (int8, ``-1`` = not judged by v1.0); ``n_samples``
+        ``is_clean_cycle`` (int8, **tri-state**: ``1`` clean, ``0`` dirty, ``-1``
+        never judged by v1.0 -- *not* "dirty". ``-1`` covers the 1,179
+        ``beyond_crossing`` cycles, which have no row in
+        ``analysis_set_cycles.csv`` because that file is truncated at each cell's
+        80% SOH crossing, and any requested label with no row at all. With the
+        default ``beyond_crossing=False`` those cycles are not in the request, so
+        ``-1`` then marks only absent labels -- a labels window over 10..100
+        returns none. Filter with ``== 1``, never with ``!= 0`` and never by
+        truthiness: ``bool(-1)`` is ``True``); ``n_samples``
         (int32); ``segment`` (int8); ``source_batch_date`` (n_cells, n_cycles) str,
         the file each row came from; one entry per requested field; ``vdlin``
         (1000,) float64 if a grid field was asked for; ``fields``, ``field_kind``;
@@ -387,13 +548,16 @@ def load_series(
 
     Notes
     -----
-    Nothing is interpolated, zero-filled, clipped or renumbered. See the module
-    docstring for the four guarantees, and ``SPEC_v0.3.md`` for the measurements
-    behind every number quoted here.
+    Nothing is interpolated, zero-filled, clipped or renumbered -- including under
+    ``window="measured"``, which chooses which stored rows to return and changes
+    no value in any of them. See the module docstring for the four guarantees,
+    ``PLAN_v0.3.1.md`` for the window measurements, and ``SPEC_v0.3.md`` for the
+    rest.
     """
     from . import features
     from . import loaders
 
+    window, cycles, start, n = _normalise_window(window, cycles, start, n)
     all_fields, grid_fields, native_fields = _split_fields(fields)
 
     # --- tables ---------------------------------------------------------
@@ -415,7 +579,9 @@ def load_series(
 
     # --- the request grid ----------------------------------------------
     labels = _normalise_cycles(cycles)
-    if labels is None:
+    if window == "measured":
+        grid_labels, n_cycles = _measured_labels(sub, uids, start, n)
+    elif labels is None:
         per_cell = sub.groupby("cell_uid")["cycle"].apply(
             lambda s: np.sort(s.to_numpy())
         )
@@ -585,7 +751,10 @@ def load_series(
         "data_dir": str(directory),
         "files_read": list(_h5.files_for(dates)),
         "fields": list(all_fields),
-        "cycles": "all" if labels is None else [int(x) for x in labels],
+        "window": window,
+        "start": None if start is None else int(start),
+        "n": None if n is None else int(n),
+        "cycles": _describe_request(window, labels, start, n),
         "n_cells": n_cells,
         "n_cycles": n_cycles,
         "n_positions": int(n_cells * n_cycles),
@@ -609,6 +778,17 @@ def load_series(
 # ---------------------------------------------------------------------------
 # the two small ones
 # ---------------------------------------------------------------------------
+
+def _describe_request(window, labels, start, n):
+    """What ``filters["cycles"]`` records: the request, in the terms it was made."""
+    if window == "measured":
+        if start is None:
+            return "measured:all"
+        return "measured:start={0},n={1}".format(int(start), int(n))
+    if labels is None:
+        return "all"
+    return [int(x) for x in labels]
+
 
 def load_vdlin(data_dir: Optional[str] = None, v11_dir: Optional[str] = None):
     """Return the 1000-point voltage grid, ``(1000,)`` float64, **as stored**.

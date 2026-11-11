@@ -27,7 +27,7 @@ published Zenodo *version* record -- ``constants.V11_ZENODO_DOI``, never the con
 DOI -- and only the files a call actually needs are fetched. Every file is checked
 against its recorded SHA-256 before it is used.
 
-As of v0.3.0 the within-cycle series are here too -- the six native (ragged) fields
+The within-cycle series are here too -- the six native (ragged) fields
 ``t``, ``I``, ``V``, ``T``, ``Qc``, ``Qd`` and the three interpolated grid curves
 ``Qdlin``, ``Tdlin``, ``discharge_dQdV`` on their ``Vdlin`` grid. They live in
 2.20 GB of HDF5, so they need the optional ``series`` extra
@@ -95,7 +95,7 @@ from .loaders import (
 from .series import load_series, load_vdlin, open_batch
 from .splits import Split, cv_splits, split_labels
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "__version__",
@@ -109,7 +109,7 @@ __all__ = [
     "load_cell_features",
     "load_conditioning",
     "v11_counts",
-    # v0.3.0 -- the within-cycle series (needs the 'series' extra)
+    # the within-cycle series (needs the 'series' extra)
     "load_series",
     "load_vdlin",
     "open_batch",

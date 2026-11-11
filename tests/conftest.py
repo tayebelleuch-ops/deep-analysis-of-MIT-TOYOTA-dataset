@@ -21,6 +21,11 @@ from matr_clean import _locate, constants, features, loaders
 
 #: Set this to a directory holding the published within_cycle_* files to run the
 #: integration tests against the real 114,738-row index. Unset, they skip.
+#: A *fresh clone or git worktree* has no ``exploration/extract_out/`` (it is
+#: self-ignoring and the files are hosted, never committed), so symlink or copy the
+#: published ``within_cycle_*`` files in there as well -- otherwise
+#: ``test_n_v02_functions_do_not_need_h5py``, which resolves the v1.1 index out of
+#: the clone's own ``exploration/``, fails offline with ``DownloadError``.
 REAL_DATA_ENV = "MATR_CLEAN_TEST_DATA"
 
 

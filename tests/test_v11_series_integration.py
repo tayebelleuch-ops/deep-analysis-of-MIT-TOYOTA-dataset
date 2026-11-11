@@ -405,3 +405,115 @@ def test_the_integration_run_changes_no_file(load, real_dir):
         for p in sorted(real_dir.iterdir()) if p.is_file()
     }
     assert before == after
+
+
+# ---------------------------------------------------------------------------
+# window= against the real files (v0.3.1): the figures PLAN_v0.3.1.md quotes
+# ---------------------------------------------------------------------------
+
+def _cost(out):
+    """``(masked positions, cells with >=1, cells returned)`` for a window."""
+    bad = out["present"] & ~out["is_series_valid"]
+    return int(bad.sum()), int(bad.any(axis=1).sum()), len(out["cell_uid"])
+
+
+def test_the_placeholder_population_is_46_cells_all_at_label_1(real_index, load):
+    """46 of 135 cells, 37 of the 108 non-test, all label 1, all 2017-05-12."""
+    rows = real_index.loc[
+        real_index["is_placeholder"] & ~real_index["beyond_crossing"]
+    ]
+    assert len(rows) == 46
+    assert sorted(set(rows["cycle"])) == [1]
+    assert sorted(set(rows["source_batch_date"].astype(str))) == ["2017-05-12"]
+    assert rows["cell_uid"].nunique() == 46
+
+    everything = load(cycles=[1], include_test=True)
+    non_test = load(cycles=[1])
+    assert int(everything["is_placeholder"].sum()) == 46
+    assert int(non_test["is_placeholder"].sum()) == 37
+    assert len(everything["cell_uid"]) == 135
+    assert len(non_test["cell_uid"]) == 108
+
+
+def test_labels_1_to_25_costs_what_the_docstring_now_says(load):
+    """The figures that replace series.py's "18 of 135 cells / 48 of 3,375".
+
+    The quoted pair was the *measured* one on a function implementing *labels*, and
+    the ``include_test=True`` population on a function that defaults to 108 cells.
+    All four pairs, measured here against the real files.
+    """
+    assert _cost(load(start=1, n=25, include_test=True)) == (93, 48, 135)
+    assert _cost(load(start=1, n=25)) == (80, 39, 108)
+    assert _cost(
+        load(start=1, n=25, window="measured", include_test=True)
+    ) == (48, 18, 135)
+    assert _cost(load(start=1, n=25, window="measured")) == (44, 14, 108)
+
+
+def test_labels_1_to_25_nan_rows_are_the_placeholders_and_measured_has_none(load):
+    labels = load(start=1, n=25, fields=("Qdlin",), include_test=True)
+    measured = load(start=1, n=25, fields=("Qdlin",), window="measured",
+                    include_test=True)
+    assert int(np.isnan(labels["Qdlin"]).all(axis=2).sum()) == 46
+    assert int(np.isnan(measured["Qdlin"]).all(axis=2).sum()) == 0
+
+
+def test_from_label_10_the_two_conventions_are_identical(load):
+    """0 of 12,285 positions differ over labels 10..100 -- the reason "labels" stays
+    the default. The only placeholder is label 1 and no cell has an interior label
+    gap, so a window starting at 10 cannot tell the conventions apart.
+    """
+    for include_test, expected in ((True, (71, 19, 135)), (False, (67, 15, 108))):
+        labels = load(start=10, n=91, fields=("Qdlin",), include_test=include_test)
+        measured = load(start=10, n=91, fields=("Qdlin",), window="measured",
+                        include_test=include_test)
+        assert _cost(labels) == expected
+        assert _cost(measured) == expected
+        for key in ("cycle", "valid", "present", "cell_uid", "is_placeholder"):
+            assert np.array_equal(labels[key], measured[key]), key
+        assert np.array_equal(labels["Qdlin"], measured["Qdlin"], equal_nan=True)
+        expected_positions = (135 if include_test else 108) * 91
+        assert labels["filters"]["n_positions"] == expected_positions
+        assert measured["filters"]["n_positions"] == expected_positions
+
+
+def test_labels_10_to_300_runs_one_cell_out_of_cycles(load):
+    """152 absent positions, in one cell, and the two conventions label them
+    differently: ``labels`` keeps the requested 149..300, ``measured`` has no row to
+    name and says 0. Neither invents a measurement.
+    """
+    labels = load(start=10, n=291, fields=("Qdlin",), include_test=True)
+    measured = load(start=10, n=291, fields=("Qdlin",), window="measured",
+                    include_test=True)
+
+    assert _cost(labels) == (124, 66, 135)
+    assert _cost(measured) == (124, 66, 135)
+    assert int((~labels["present"]).sum()) == 152
+    assert int((~measured["present"]).sum()) == 152
+    assert int((~labels["present"]).any(axis=1).sum()) == 1
+    assert int((measured["cycle"] == 0).sum()) == 152
+    assert int((labels["cycle"] == 0).sum()) == 0
+    short = np.flatnonzero((~labels["present"]).any(axis=1))[0]
+    assert labels["cycle"][short, -1] == 300
+    assert np.isnan(labels["Qdlin"][~labels["present"]]).all()
+
+
+def test_is_clean_cycle_is_a_tri_state_and_minus_one_is_not_dirty(load, real_index):
+    """``-1`` means v1.0 never judged the row: the 1,179 beyond-crossing cycles and
+    any absent label. With beyond_crossing=False a 10..100 window returns none.
+    """
+    assert int(real_index["beyond_crossing"].sum()) == 1179
+
+    window = load(start=10, n=91, fields=("Qdlin",), include_test=True)
+    assert int((window["is_clean_cycle"] == -1).sum()) == 0
+    assert set(np.unique(window["is_clean_cycle"]).tolist()) <= {0, 1}
+
+    uid = "EL150800460511"
+    beyond = load(uid, cycles=None, fields=("Qdlin",), beyond_crossing=True,
+                  include_test=True)
+    not_judged = beyond["is_clean_cycle"] == -1
+    assert not_judged.any(), "this cell has cycles past its crossing"
+    assert np.array_equal(not_judged[beyond["present"]],
+                          beyond["beyond_crossing"][beyond["present"]])
+    tri = beyond["is_clean_cycle"]
+    assert int((tri == 1).sum()) != int((tri != 0).sum()), "== 1 and != 0 differ"

@@ -115,8 +115,8 @@ def url_for(filename: str) -> str:
 # nine within-cycle series as three HDF5 files.
 #
 # v0.2.0 of this package reads the **index only**, which is why it still needs
-# nothing but pandas and numpy. The HDF5 files arrive with v0.3.0 behind the
-# optional ``series`` extra.
+# nothing but pandas and numpy. The HDF5 files are read by ``load_series``,
+# behind the optional ``series`` extra.
 #
 # Provenance: exploration/MANIFEST_v1.1.md. tests/test_manifest_hashes.py asserts
 # every value below still equals the value recorded there.
@@ -177,7 +177,7 @@ V11_CELLS_FILE = "within_cycle_cells.csv"
 #: The two files v0.2.0 needs.
 V11_REQUIRED_FILES = (V11_INDEX_FILE, V11_CELLS_FILE)
 
-#: ``source_batch_date`` -> HDF5 filename. Read by v0.3.0, listed here so the
+#: ``source_batch_date`` -> HDF5 filename. Read by ``series.py``, listed here so the
 #: hashes and the dispatch rule live in one place.
 #:
 #: Keyed by ``source_batch_date`` and **never** by ``batch_date``: five cells are

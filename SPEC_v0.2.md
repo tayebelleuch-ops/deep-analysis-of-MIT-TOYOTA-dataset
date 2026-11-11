@@ -1,5 +1,9 @@
 # matr_clean v0.2 / v0.3 — corrected specification
 
+> **§6's recommended default is superseded by v0.3.1:** `load_series(window=...)`
+> ships both conventions and `"labels"` is the default; `load_early_window` was never
+> built and is closed as won't-do. See `SPEC_v0.3.md` §12 and `PLAN_v0.3.1.md`.
+>
 > **Superseded for v0.3.0.** Sections 3, 5, 6 and 7 of this document are superseded
 > by [`SPEC_v0.3.md`](SPEC_v0.3.md), which re-verified the HDF5 layout and lists 20
 > corrections to what follows. Sections 0-2 describe the CSV half, which shipped as

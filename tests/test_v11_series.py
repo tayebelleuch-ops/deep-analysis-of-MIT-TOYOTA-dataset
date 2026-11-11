@@ -777,3 +777,135 @@ def test_include_test_default_drops_held_out_cells(load, exploration_dir):
     test_uids = set(table.loc[table["fold"] == constants.TEST_FOLD, "cell_uid"])
     assert set(out_kept["cell_uid"]).isdisjoint(test_uids)
     assert set(out_all["cell_uid"]) >= set(out_kept["cell_uid"])
+
+
+# ---------------------------------------------------------------------------
+# (p) window= -- the labels / measured conventions (v0.3.1)
+# ---------------------------------------------------------------------------
+
+def test_p_labels_window_keeps_the_placeholder_masked_in_place(load):
+    """``window="labels"`` is the default, and is what ``cycles=`` always meant."""
+    uid, _ = PLACEHOLDER
+    out = load(uid, start=1, n=3)
+
+    assert out["filters"]["window"] == "labels"
+    assert list(out["cycle"][0]) == [1, 2, 3]
+    assert list(out["present"][0]) == [True, True, True]
+    assert list(out["valid"][0]) == [False, True, True]
+    assert out["is_placeholder"][0, 0]
+    assert np.isnan(out["Qdlin"][0, 0]).all()
+
+
+def test_p_measured_window_selects_past_the_placeholder(load):
+    """``window="measured"`` returns real measurements and nothing else.
+
+    It **selects** rows; no value in any returned row differs from the file, and
+    ``filters["repaired"]`` still says nothing was repaired. For this cell the first
+    three measured cycles are labels 2, 3 and 1189 -- the fixture's own rows -- which
+    is also why the labels come back per cell and are always returned.
+    """
+    uid, _ = PLACEHOLDER
+    out = load(uid, window="measured", start=1, n=3)
+
+    assert out["filters"]["window"] == "measured"
+    assert list(out["cycle"][0]) == [2, 3, 1189]
+    assert out["present"][0].all()
+    assert out["valid"][0].all()
+    assert not out["is_placeholder"][0].any()
+    assert not np.isnan(out["Qdlin"][0]).any(), "no NaN row under window='measured'"
+    assert out["filters"]["repaired"].startswith("nothing")
+
+
+def test_p_start_and_n_are_exact_sugar_for_a_label_range(load):
+    """``start=a, n=k`` and ``cycles=range(a, a + k)`` are one code path."""
+    left = load(GAP_CELL, start=11, n=5)
+    right = load(GAP_CELL, cycles=range(11, 16))
+
+    for key in ("cycle", "valid", "present", "Qdlin", "is_clean_cycle", "n_samples"):
+        assert np.array_equal(left[key], right[key], equal_nan=True), key
+    assert list(left["cycle"][0]) == [11, 12, 13, 14, 15]
+    assert list(left["present"][0]) == [True, True, True, False, True]
+    assert left["filters"]["start"] == 11 and left["filters"]["n"] == 5
+    assert right["filters"]["start"] is None
+
+
+def test_p_measured_skips_an_absent_label_because_it_is_not_a_row(load):
+    """A gap is not closed; under ``measured`` it is never requested.
+
+    ``GAP_CELL`` has no label 14. Asking for *four measurements* from label 11 gets
+    labels 11, 12, 13, 15 -- four rows that exist -- and the ``cycle`` array says so.
+    Asking for *labels* 11..14 still returns a masked, label-keeping position 3
+    (the test above). Neither call invents a row for 14.
+    """
+    out = load(GAP_CELL, window="measured", start=11, n=4)
+
+    assert list(out["cycle"][0]) == [11, 12, 13, 15]
+    assert out["present"][0].all()
+    assert list(out["valid"][0]) == [True, False, True, True]
+
+
+def test_p_measured_pads_a_short_cell_with_label_zero(load):
+    """Running out of rows is an absent position, not a repeated or stretched one."""
+    uid, _ = PLACEHOLDER
+    out = load(uid, window="measured", start=1190, n=4)
+
+    assert list(out["cycle"][0]) == [1190, 1191, 0, 0]
+    assert list(out["present"][0]) == [True, True, False, False]
+    assert not out["valid"][0][2:].any()
+    assert np.isnan(out["Qdlin"][0, 2]).all()
+
+
+def test_p_measured_with_no_window_is_every_measured_cycle(load):
+    """``window="measured"`` with ``cycles=None``: the result minus placeholders."""
+    labels = load(cycles=None, include_test=True)
+    measured = load(cycles=None, window="measured", include_test=True)
+
+    assert labels["filters"]["cycles"] == "all"
+    assert measured["filters"]["cycles"] == "measured:all"
+    assert int(labels["present"].sum()) - int(measured["present"].sum()) == int(
+        labels["is_placeholder"].sum()
+    )
+    assert not measured["is_placeholder"].any()
+    assert measured["cycle"].shape[1] == labels["cycle"].shape[1] - 1
+
+
+def test_p_filters_record_the_window_request(load):
+    out = load(GAP_CELL, window="measured", start=11, n=4)
+    assert out["filters"]["window"] == "measured"
+    assert out["filters"]["start"] == 11
+    assert out["filters"]["n"] == 4
+    assert out["filters"]["cycles"] == "measured:start=11,n=4"
+    assert out["filters"]["n_cycles"] == 4
+    assert out["filters"]["repaired"] == (
+        "nothing: masked in place, never interpolated or zero-filled"
+    )
+
+
+def test_p_measured_keeps_the_four_guarantees(load):
+    """Promises 1-4 of the module docstring, under the new convention."""
+    uid, _ = PLACEHOLDER
+    out = load(uid, window="measured", start=1, n=6)
+
+    assert out["Qdlin"].shape[1] == 6, "len(result) == n, always"
+    assert "cycle" in out and out["cycle"].shape == (1, 6)
+    assert out["filters"]["repaired"].startswith("nothing")
+    with mc.open_batch("2017-05-12", data_dir=out["filters"]["data_dir"],
+                       v11_dir=out["filters"]["data_dir"]) as handle:
+        assert handle.mode == "r"
+
+
+@pytest.mark.parametrize(
+    "kwargs, needle",
+    [
+        ({"start": 10}, "come as a pair"),
+        ({"n": 10}, "come as a pair"),
+        ({"cycles": [1, 2], "start": 1, "n": 2}, "not both"),
+        ({"window": "measured", "cycles": [1, 2]}, "no meaning"),
+        ({"window": "nonsense", "start": 1, "n": 2}, "must be 'labels'"),
+        ({"start": 0, "n": 2}, "labels start at 1"),
+        ({"start": 1, "n": 0}, "must be >= 1"),
+    ],
+)
+def test_p_window_argument_errors_say_what_to_do_instead(load, kwargs, needle):
+    with pytest.raises(ValueError, match=needle):
+        load(**kwargs)

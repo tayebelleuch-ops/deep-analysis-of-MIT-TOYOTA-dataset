@@ -274,7 +274,7 @@ def test_the_first_25_labels_carry_93_invalid_positions(real):
 
 
 def test_the_measured_window_shifts_only_the_2017_05_12_cells(real):
-    """window="measured" (the chosen default) is labels 2..26 for exactly the 46
+    """window="measured" (the opt-in convention) is labels 2..26 for exactly the 46
     cells with a placeholder, and labels 1..25 for the other 89."""
     seg1 = real[real["segment"] == 1].sort_values(["cell_uid", "cycle"])
     shifted, unshifted = 0, 0

@@ -1,12 +1,16 @@
 # matr_clean v0.3.0 — the HDF5 within-cycle gateway
 
-**Status: approved and built, except `load_early_window`.** Steps 1–3 of section 8.2
-are implemented on `loader-v0.3`: `matr_clean/_h5.py`, `matr_clean/series.py`
-(`load_series`, `load_vdlin`, `open_batch`), the committed fixture and the tests.
-`load_early_window` is deliberately **not** built and awaits review. `main` is untouched
-at `2d2fae7` (`loader-v0.2.2`); nothing is pushed and nothing is tagged.
+**Status: shipped as `loader-v0.3.0` (`1dbe475`), and amended by v0.3.1.** Steps 1–3 of
+section 8.2 are implemented: `matr_clean/_h5.py`, `matr_clean/series.py` (`load_series`,
+`load_vdlin`, `open_batch`), the committed fixture and the tests.
 
-**Section 11 records what the build changed about this plan.**
+**`load_early_window` (step 4, §2.2) was never built and is now closed as won't-do.**
+v0.3.1 adds `window=`, `start=` and `n=` to `load_series` instead, and
+**`window="labels"` is the default**, not `"measured"` as §2.2 and §2.7 propose.
+**Section 12 records every claim in this document that v0.3.1 supersedes, and
+`PLAN_v0.3.1.md` carries the re-measured figures.**
+
+**Section 11 records what the v0.3.0 build changed about this plan.**
 
 This supersedes **§3, §5, §6 and §7 of `SPEC_v0.2.md`** for everything that touches the
 three HDF5 files. `SPEC_v0.2.md` is not edited: its §0–§2 correctly describe the CSV half,
@@ -380,6 +384,11 @@ function that stacks (§2.2).
 
 ### 2.2 `load_early_window` — a thin wrapper, grid fields only
 
+> **Superseded (v0.3.1): not built, closed as won't-do.** `window=`/`start=`/`n=` on
+> `load_series` cover it without a second array layout; its proposed defaults
+> (`n_cycles=25`, `window="measured"`, start at cycle 1) contradict the workflow the
+> team settled on (expanding windows from **label 10**, k from 100). §12.
+
 ```python
 def load_early_window(
     n_cycles=25,
@@ -404,8 +413,9 @@ then returns `X` plus **every key `load_series` returns**, unchanged. A native f
 `fields` raises `ValueError`: a ragged field cannot be stacked, and silently padding it
 would be the zero-fill this release exists to prevent.
 
-`window="measured"` (the default) takes each cell's first `n_cycles` rows with
-`is_placeholder=False`; `window="labels"` takes labels `1…n_cycles`. They differ only for
+`window="measured"` takes each cell's first `n_cycles` rows with
+`is_placeholder=False`; `window="labels"` takes labels `1…n_cycles`. **(v0.3.1 ships
+both on `load_series`, with `"labels"` as the default — §12.)** They differ only for
 the 46 cells of 2017-05-12, whose labels shift by one under `"measured"`. The reasoning and
 the ΔQ(100−10) cost are `SPEC_v0.2.md` §6's and are unchanged; the `cycle` matrix is always
 returned, so which labels you got is never ambiguous.
@@ -515,7 +525,7 @@ Three things to read off it:
 
 * Under `"labels"` the floor is the 46 placeholders: a third of the cells are removed at
   **any** N, because label 1 of every 2017-05-12 cell is structurally empty. That is the
-  cost of the label convention, and it is why `"measured"` is the default.
+  cost of the label convention. **(v0.3.1: `"labels"` is the default — §12.)**
 * Under `"measured"`, **N=25 and N=50 remove the same 18 cells.** The damage is concentrated
   in labels 12–13 (§1.12), so widening the window from 25 to 50 costs nothing extra.
   Narrowing to 10 costs only 2.
@@ -902,7 +912,7 @@ change from future to present tense, and five of them state something §1 correc
 | `README.md` | — | the v0.2.2 feature list | add the four functions and the `series` extra |
 | `matr_clean/__init__.py` | 33 | "arrive in v0.3.0 behind an optional `series` extra" | present tense; add to `__all__` |
 | `matr_clean/features.py` | 18, 330 | "those arrive with v0.3.0" | point at `load_series` |
-| `matr_clean/features.py` | 535 | `load_conditioning`'s "v0.3.0's `load_early_window` **will** reproduce exactly" | becomes the tested contract of §2.3 — test **i** |
+| `matr_clean/features.py` | 535 | ~~`load_conditioning`'s "v0.3.0's `load_early_window` **will** reproduce exactly"~~ | **done in 0.3.0.** The line now reads "a row order `load_series` reproduces exactly", and §2.3's alignment contract is tested (test **i**). Struck here in 0.3.1 because it was still listed as outstanding |
 | `matr_clean/loaders.py` | 363 | "live in the HDF5 files … and arrive in v0.3.0" | point at `load_series` |
 | `matr_clean/loaders.py` | 716–725, 739, 742 | `describe()`'s field table tagging all ten entries "v0.3.0", and the two "arrive in v0.3.0" lines | retag to "0.3.0" as shipped; `describe()` is the thing a user runs first, so a stale tag here is the most misleading of the lot |
 | `matr_clean/_locate.py` | 816 | `resolve_v11_dir`'s "v0.3.0 passes the HDF5 filenames it needs instead" | becomes a statement of fact |
@@ -971,6 +981,11 @@ data:
    use `window="measured"` and accept that the 46 cells of 2017-05-12 are label-shifted by
    one. §2.7's measurement is the argument for `"measured"`: it yields **zero NaN** in `X`.
 
+   **Answered by the team (v0.3.1): no, cycle 1 does not matter as an input.** Training
+   uses expanding windows from **label 10**, and §12's measurement makes the question
+   moot — from `start=10` the two conventions return identical labels, mask and cells.
+   `"labels"` is therefore the shipped default.
+
 Nothing else is blocking. Both questions have a defensible default already in place, so
 step 1–3 of §8.2 can be built before either is answered.
 
@@ -1032,3 +1047,28 @@ label convention and a `groupby.head(n)` over `is_placeholder == False` for the 
 one; both are written out in `USAGE.md`, with the cost of each convention tabulated. The
 two questions in §10 — which N, and whether cycle 1 matters — are what decide its default,
 and neither is answered yet.
+
+---
+
+## 12. Superseded by v0.3.1
+
+`PLAN_v0.3.1.md` is the planning record; this section lists only what this document
+claims that is no longer true. Every figure below was recomputed from
+`within_cycle_index.csv` and re-derived through the shipped `load_series`.
+
+| § | this document says | v0.3.1 |
+|---|---|---|
+| §2.2, §8.2 step 4 | `load_early_window` is a thin wrapper to be built | **not built, closed as won't-do.** `window=`/`start=`/`n=` on `load_series` cover it; a second stacked `X` layout would be a second place for the mask contract to drift |
+| §2.2, §2.7, §9 Q2 | `window="measured"` is the default | **`window="labels"` is the default.** It is the current behaviour, it is the convention in which a label is the same physical cycle in every batch, and promise 1 ("returned, masked — never silently dropped") should not be weakened by a default that selects past 46 placeholder rows |
+| §2.7 | the cost tables are given for all 135 cells only | the **108 non-test** rows are what the default `include_test=False` call returns: labels 1..25 masks **80 of 2,700** across **39** cells, measured **44** across **14**. All nine all-135 values in §2.7 verify unchanged |
+| §2.7, §9 Q1 | the window choice is argued at N=10/25/50 from label 1 | the team's window is **labels 10..100** (k from 100, horizon 100): **71 of 12,285** masked across **19 of 135** cells, **67 of 9,828** across **15 of 108** — and **the two conventions are identical there**, 0 of 12,285 positions differing, because the only placeholder is label 1 of the 46 cells of 2017-05-12 and no cell has an interior label gap |
+| §3 (`load_series` docstring) | `drop_invalid_cells` "costs 18 of 135 cells to recover 48 of 3,375 positions" | that is the **measured** pair quoted on the **labels** convention, and the `include_test=True` population on a function that defaults to 108 cells. Corrected in the docstring |
+| §8.3 | `matr_clean/features.py`:535 is outstanding | done in 0.3.0; struck from the table |
+| §8.3 | the `USAGE.md` early-window rows | done: the section is rewritten around `window=`/`start=`/`n=`, and a new "Load once, slice prefixes" section covers expanding and rolling windows, cell-level splitting, normalization on valid training positions, masked-mean loss and fill-after-normalization |
+| — | `is_clean_cycle`'s third state is only a code comment | documented as public API: `1` clean, `0` dirty, **`-1` never judged** — the 1,179 `beyond_crossing` cycles and any absent label. Not "dirty"; filter with `== 1` |
+
+Unchanged by v0.3.1: every guarantee in §1 and §3 (gaps never closed, labels always
+returned, nothing interpolated/zero-filled/clipped, every file `mode="r"`), the
+dispatch rule, the memory guard, the h5py floor and the 3.9 floor. `window="measured"`
+**selects** rows and changes no value in any of them; the AST test over `series.py` and
+`_h5.py` still finds zero repair calls.
